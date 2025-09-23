@@ -40,7 +40,7 @@ jobs:
         path_released: ${{fromJson(needs.pull-request.outputs.paths_released)}}
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
     - name: Use Node.js LTS 22.x
       uses: actions/setup-node@v4
       with:
