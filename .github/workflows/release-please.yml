@@ -34,21 +34,18 @@ jobs:
     if: ${{needs.pull-request.outputs.releases_created && toJson(fromJson(needs.pull-request.outputs.paths_released)) != '[]'}}
     runs-on: ubuntu-24.04
     permissions:
-      id-token: write
+      id-token: write # Required for trusted publishing via OIDC (https://docs.npmjs.com/trusted-publishers)
     strategy:
       matrix:
         path_released: ${{fromJson(needs.pull-request.outputs.paths_released)}}
     steps:
     - name: Checkout
       uses: actions/checkout@v4
-    - name: Use Node.js LTS 22.x
-      uses: actions/setup-node@v4
+    - name: Node.js LTS
+      uses: actions/setup-node@v5
       with:
-        node-version: 22.x
-    - name: Publish to NPM
-      env:
-        NPM_TOKEN: ${{secrets.NPM_UI5BOT}}
+        node-version: 24.x
+    - name: Publish to npm
       run: |
         cd ${{matrix.path_released}}
-        echo '//registry.npmjs.org/:_authToken=${NPM_TOKEN}' >> ./.npmrc
-        npm publish --provenance --workspaces false --access public
+        npm publish --workspaces false --access public
