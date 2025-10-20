@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.0.2](https://github.com/UI5/cli-extensions/compare/middleware-code-coverage-v2.0.1...middleware-code-coverage-v2.0.2) (2025-10-20)
+
+
+### Dependencies
+
+* Bump istanbul-reports from 3.1.7 to 3.2.0 ([977244c](https://github.com/UI5/cli-extensions/commit/977244c55f1081667d4306f35feb623504ca53ce))
+* Bump router from 2.0.0 to 2.1.0 ([0d12240](https://github.com/UI5/cli-extensions/commit/0d12240c003c9aa170ff728c77f130a4d6864792))
+* Bump router from 2.1.0 to 2.2.0 ([c4878be](https://github.com/UI5/cli-extensions/commit/c4878bec44f96ae7834c6e788d282863e6caaa67))
+* Bump serve-static from 1.16.2 to 2.2.0 ([fe86343](https://github.com/UI5/cli-extensions/commit/fe86343abc497ee68a7b2f73a98bfe5c7e38331e))
+
 ## [2.0.1](https://github.com/UI5/cli-extensions/compare/middleware-code-coverage-v2.0.0...middleware-code-coverage-v2.0.1) (2024-09-20)
 
 
