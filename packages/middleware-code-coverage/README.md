@@ -135,7 +135,7 @@ npm install @ui5/middleware-code-coverage --save-dev
 4. Open "http://localhost:8080/test/unit/unitTests.qunit.html?coverage" in a browser of your choice
 
 5. Check the code coverage
-  ![UI5 logo](./docs/images/sample-app-coverage-data.png)
+  ![Sample for analyzing code coverage](./docs/images/sample-app-coverage-data.png)
 
 ### Configuration
 

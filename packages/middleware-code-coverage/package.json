@@ -20,7 +20,8 @@
 	"license": "Apache-2.0",
 	"repository": {
 		"type": "git",
-		"url": "git@github.com:UI5/cli-extensions.git"
+		"url": "git@github.com:UI5/cli-extensions.git",
+		"directory": "packages/middleware-code-coverage"
 	},
 	"type": "module",
 	"files": [
