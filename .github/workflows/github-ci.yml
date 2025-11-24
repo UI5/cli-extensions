@@ -40,7 +40,7 @@ jobs:
       run: npm run test:unit:coverage
 
     - name: Send report to Coveralls for package @ui5/middleware-code-coverage
-      uses: coverallsapp/github-action@v2.3.6
+      uses: coverallsapp/github-action@v2.3.7
       with:
         flag-name: middleware-code-coverage
         base-path: ./packages/middleware-code-coverage
