@@ -57,7 +57,7 @@
 		"globals": "^16.5.0",
 		"nyc": "^17.1.0",
 		"sinon": "^21.0.1",
-		"supertest": "^7.1.4"
+		"supertest": "^7.2.2"
 	},
 	"scripts": {
 		"depcheck": "depcheck --ignores ava,@istanbuljs/esm-loader-hook",
