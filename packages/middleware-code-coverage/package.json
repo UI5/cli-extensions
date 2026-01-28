@@ -1,6 +1,6 @@
 {
 	"name": "@ui5/middleware-code-coverage",
-	"version": "2.0.2",
+	"version": "2.0.3",
 	"description": "UI5 CLI middleware to instrument code coverage with Istanbul",
 	"author": {
 		"name": "SAP SE",

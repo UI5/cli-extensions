@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.0.3](https://github.com/UI5/cli-extensions/compare/middleware-code-coverage-v2.0.2...middleware-code-coverage-v2.0.3) (2026-01-28)
+
+
+### Bug Fixes
+
+* **middleware-code-coverage:** Lazy evaluate exclude patterns ([#528](https://github.com/UI5/cli-extensions/issues/528)) ([262f7e7](https://github.com/UI5/cli-extensions/commit/262f7e71d0365e93be4f201a02ede10333f4575d))
+
+
+### Dependencies
+
+* Bump body-parser from 1.20.3 to 2.2.2 ([606e60e](https://github.com/UI5/cli-extensions/commit/606e60e4d48821b38ec83fcf4be66281a6861231))
+* Bump serve-static from 2.2.0 to 2.2.1 ([3906abd](https://github.com/UI5/cli-extensions/commit/3906abd3da1bb34b3453894ab8a3bb713b145c6c))
+
 ## [2.0.2](https://github.com/UI5/cli-extensions/compare/middleware-code-coverage-v2.0.1...middleware-code-coverage-v2.0.2) (2025-10-20)
 
 
