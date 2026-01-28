@@ -35,10 +35,7 @@ import {promisify} from "node:util";
  * @returns {Function} Middleware function to use
  */
 export default async function({log, middlewareUtil, options={}, resources}) {
-	const config = await createInstrumentationConfig(
-		options.configuration,
-		resources.all
-	);
+	const config = await createInstrumentationConfig(options.configuration);
 	const {
 		report: reporterConfig,
 		instrument: instrumenterConfig,
