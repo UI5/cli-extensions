@@ -3,7 +3,9 @@ import {
 	createInstrumentationConfig,
 	shouldInstrumentResource,
 	getLatestSourceMap,
-	readJsonFile} from "./util.js";
+	readJsonFile,
+	getLibraryCoverageExcludePatterns
+} from "./util.js";
 import {createInstrumenter} from "istanbul-lib-instrument";
 import reportCoverage from "./coverage-reporter.js";
 import bodyParser from "body-parser";
@@ -104,9 +106,22 @@ export default async function({log, middlewareUtil, options={}, resources}) {
 		)
 	);
 
+	let excludePatterns;
+
 	router.use(async (req, res, next) => {
+		// Lazy initialize exclude patterns
+		if (excludePatterns === undefined) {
+			// Custom patterns take precedence over .library defined patterns (also when set to null)
+			if (generalConfig.excludePatterns !== undefined) {
+				excludePatterns = generalConfig.excludePatterns;
+			} else {
+				// Read patterns from .library files, this should only be done if needed and only once
+				excludePatterns = await getLibraryCoverageExcludePatterns(resources.all);
+			}
+		}
+
 		// Skip files which should not be instrumented
-		if (!shouldInstrumentResource(req, generalConfig)) {
+		if (!shouldInstrumentResource(req, excludePatterns)) {
 			next();
 			return;
 		}
