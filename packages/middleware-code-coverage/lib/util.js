@@ -7,18 +7,15 @@ import {readFile} from "node:fs/promises";
  *
  * @public
  * @param {object} configuration instrumentation configuration
- * @param {@ui5/fs/Resource[]} resources
  * @returns {Promise<object>} configuration
  */
-export async function createInstrumentationConfig(configuration = {}, resources) {
-	const excludedPatterns = resources ? await excludePatterns(resources) : [];
-
+export async function createInstrumentationConfig(configuration = {}) {
 	const {instrument, report, ...generalConfig} = configuration;
 
 	return {
 		// General configuration
 		cwd: "./",
-		excludePatterns: excludedPatterns,
+
 		// General config overwrites
 		...generalConfig,
 
@@ -55,17 +52,17 @@ export function getLatestSourceMap(instrumenter) {
  *
  * @public
  * @param {object} request
- * @param {object} config
+ * @param {Array<RegExp|string>} excludePatterns Patterns to exclude file from instrumentation (RegExp or string)
  * @returns {boolean}
  */
-export function shouldInstrumentResource(request, config) {
+export function shouldInstrumentResource(request, excludePatterns) {
 	return (
 		request.path &&
 		request.path.endsWith(".js") && // Only .js file requests
 		!isFalsyValue(request.query.instrument) && // instrument only flagged files, ignore "falsy" values
-		!(config && config.excludePatterns || []).some((pattern) => {
+		!(excludePatterns || []).some((pattern) => {
 			if (pattern instanceof RegExp) {
-				// The ones comming from .library files are regular expressions
+				// The ones coming from .library files are regular expressions
 				return pattern.test(request.path);
 			} else {
 				return request.path.includes(pattern);
@@ -131,13 +128,13 @@ function isFalsyValue(value) {
  * Note: We might consider to move this utility into the @ui5/project
  *
  * @private
- * @param {@ui5/fs/Resource[]} resources
+ * @param {@ui5/fs/AbstractReader} reader
  * @returns {Promise<RegExp[]>} exclude patterns
  */
-async function excludePatterns(resources) {
+export async function getLibraryCoverageExcludePatterns(reader) {
 	const aExcludes = [];
 	// Read excludes from .library files
-	const aDotLibrary = await resources.byGlob(["/resources/**/.library"]);
+	const aDotLibrary = await reader.byGlob(["/resources/**/.library"]);
 	for (const oDotLibrary of aDotLibrary) {
 		const content = await oDotLibrary.getString();
 		const result = await xml2js.parseStringPromise(content);

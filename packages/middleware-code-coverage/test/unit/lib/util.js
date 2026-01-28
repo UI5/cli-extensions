@@ -2,6 +2,7 @@ import test from "ava";
 import {
 	createInstrumentationConfig,
 	getLatestSourceMap,
+	getLibraryCoverageExcludePatterns,
 	readJsonFile,
 	shouldInstrumentResource
 } from "../../../lib/util.js";
@@ -21,7 +22,6 @@ function getMockedRequest(path="", query={}) {
 test("createInstrumentationConfig: default config", async (t) => {
 	const expectedConfig = {
 		cwd: "./",
-		excludePatterns: [],
 		instrument: {
 			coverageGlobalScope: "window.top",
 			coverageGlobalScopeFunc: false,
@@ -59,7 +59,6 @@ test("createInstrumentationConfig: default config", async (t) => {
 test("createInstrumentationConfig: custom config", async (t) => {
 	const expectedConfig = {
 		cwd: "./myworkingdirectory",
-		excludePatterns: [],
 		instrument: {
 			coverageGlobalScope: "this",
 			coverageGlobalScopeFunc: true,
@@ -125,14 +124,12 @@ test("createInstrumentationConfig: custom config", async (t) => {
 	t.deepEqual(config, expectedConfig);
 });
 
-test("createInstrumentationConfig: .library excludes", async (t) => {
-	const expectedConfig = {
-		excludePatterns: [
-			/\/resources\/((([^/]+[/])*my-file))(-dbg)?.js$/,
-			/\/resources\/((ui5\/customlib\/utils\/([^/]+[/])*[^/]*))(-dbg)?.js$/,
-			/\/resources\/((ui5\/customlib\/Control1))(-dbg)?.js$/,
-		],
-	};
+test("getLibraryCoverageExcludePatterns: .library excludes", async (t) => {
+	const expectedPatterns = [
+		/\/resources\/((([^/]+[/])*my-file))(-dbg)?.js$/,
+		/\/resources\/((ui5\/customlib\/utils\/([^/]+[/])*[^/]*))(-dbg)?.js$/,
+		/\/resources\/((ui5\/customlib\/Control1))(-dbg)?.js$/,
+	];
 
 	const sDotLibrary = `<?xml version="1.0" encoding="UTF-8" ?>
 <library xmlns="http://www.sap.com/sap.ui.library.xsd" >
@@ -147,7 +144,7 @@ test("createInstrumentationConfig: .library excludes", async (t) => {
 	</appData>
 </library>`;
 
-	const resources = {
+	const reader = {
 		byGlob() {
 			return [{
 				getString() {
@@ -156,15 +153,11 @@ test("createInstrumentationConfig: .library excludes", async (t) => {
 			}];
 		}
 	};
-	const config = await createInstrumentationConfig({}, resources);
-	t.deepEqual(config.excludePatterns, expectedConfig.excludePatterns);
+	const patterns = await getLibraryCoverageExcludePatterns(reader);
+	t.deepEqual(patterns, expectedPatterns);
 });
 
-test("createInstrumentationConfig: .library but without jscoverage", async (t) => {
-	const expectedConfig = {
-		excludePatterns: [],
-	};
-
+test("getLibraryCoverageExcludePatterns: .library without jscoverage", async (t) => {
 	const sDotLibrary = `<?xml version="1.0" encoding="UTF-8" ?>
 <library xmlns="http://www.sap.com/sap.ui.library.xsd" >
 	<name>ui5.customlib</name>
@@ -172,7 +165,7 @@ test("createInstrumentationConfig: .library but without jscoverage", async (t) =
 	</appData>
 </library>`;
 
-	const resources = {
+	const reader = {
 		byGlob() {
 			return [{
 				getString() {
@@ -181,15 +174,11 @@ test("createInstrumentationConfig: .library but without jscoverage", async (t) =
 			}];
 		}
 	};
-	const config = await createInstrumentationConfig({}, resources);
-	t.deepEqual(config.excludePatterns, expectedConfig.excludePatterns);
+	const patterns = await getLibraryCoverageExcludePatterns(reader);
+	t.deepEqual(patterns, []);
 });
 
-test("createInstrumentationConfig: .library but without excludes", async (t) => {
-	const expectedConfig = {
-		excludePatterns: [],
-	};
-
+test("getLibraryCoverageExcludePatterns: .library without excludes", async (t) => {
 	const sDotLibrary = `<?xml version="1.0" encoding="UTF-8" ?>
 <library xmlns="http://www.sap.com/sap.ui.library.xsd" >
 	<name>ui5.customlib</name>
@@ -199,7 +188,7 @@ test("createInstrumentationConfig: .library but without excludes", async (t) => 
 	</appData>
 </library>`;
 
-	const resources = {
+	const reader = {
 		byGlob() {
 			return [{
 				getString() {
@@ -208,60 +197,61 @@ test("createInstrumentationConfig: .library but without excludes", async (t) => 
 			}];
 		}
 	};
-	const config = await createInstrumentationConfig({}, resources);
-	t.deepEqual(config.excludePatterns, expectedConfig.excludePatterns);
+	const patterns = await getLibraryCoverageExcludePatterns(reader);
+	t.deepEqual(patterns, []);
 });
 
-test("createInstrumentationConfig: custom excludes", async (t) => {
-	const excludes = [
-		/\/resources\/((ui5\/customlib\/src\/([^/]+[/])*[^/]*))(-dbg)?.js$/,
-		/\/resources\/((ui5\/customlib\/test))?.js$/,
-	];
-
-	const expectedConfig = {
-		excludePatterns: excludes
+test("getLibraryCoverageExcludePatterns: no .library files", async (t) => {
+	const reader = {
+		byGlob() {
+			return [];
+		}
 	};
-
-	const config = await createInstrumentationConfig({
-		excludePatterns: excludes
-	});
-	t.deepEqual(config.excludePatterns, expectedConfig.excludePatterns);
+	const patterns = await getLibraryCoverageExcludePatterns(reader);
+	t.deepEqual(patterns, []);
 });
 
-test("createInstrumentationConfig: custom excludes override .library excludes", async (t) => {
-	const excludes = [
-		/\/resources\/((ui5\/customlib\/src\/([^/]+[/])*[^/]*))(-dbg)?.js$/,
-		/\/resources\/((ui5\/customlib\/test))?.js$/,
-	];
-
-	const expectedConfig = {
-		excludePatterns: excludes
-	};
-
-	const sDotLibrary = `<?xml version="1.0" encoding="UTF-8" ?>
+test("getLibraryCoverageExcludePatterns: multiple .library files", async (t) => {
+	const sDotLibrary1 = `<?xml version="1.0" encoding="UTF-8" ?>
 <library xmlns="http://www.sap.com/sap.ui.library.xsd" >
-	<name>ui5.customlib</name>
+	<name>ui5.lib1</name>
 	<appData>
 		<jscoverage xmlns="http://www.sap.com/ui5/buildext/jscoverage" >
-			<exclude name="ui5.customlib.Control1" />
+			<exclude name="ui5.lib1.Control1" />
 		</jscoverage>
 	</appData>
 </library>`;
 
-	const resources = {
+	const sDotLibrary2 = `<?xml version="1.0" encoding="UTF-8" ?>
+<library xmlns="http://www.sap.com/sap.ui.library.xsd" >
+	<name>ui5.lib2</name>
+	<appData>
+		<jscoverage xmlns="http://www.sap.com/ui5/buildext/jscoverage" >
+			<exclude name="ui5.lib2.Control2" />
+		</jscoverage>
+	</appData>
+</library>`;
+
+	const reader = {
 		byGlob() {
-			return [{
-				getString() {
-					return sDotLibrary;
+			return [
+				{
+					getString() {
+						return sDotLibrary1;
+					}
+				},
+				{
+					getString() {
+						return sDotLibrary2;
+					}
 				}
-			}];
+			];
 		}
 	};
-
-	const config = await createInstrumentationConfig({
-		excludePatterns: excludes
-	}, resources);
-	t.deepEqual(config.excludePatterns, expectedConfig.excludePatterns);
+	const patterns = await getLibraryCoverageExcludePatterns(reader);
+	t.is(patterns.length, 2);
+	t.true(patterns[0].test("/resources/ui5/lib1/Control1.js"));
+	t.true(patterns[1].test("/resources/ui5/lib2/Control2.js"));
 });
 
 test("readJsonFile", async (t) => {
@@ -317,51 +307,43 @@ test("shouldInstrumentResource: Flag resource as non instrumented", (t) => {
 });
 
 test("shouldInstrumentResource: Resource flagged as instrumented, no excludes", (t) => {
-	const toBeInstrumented = shouldInstrumentResource(getMockedRequest("Test.js", {instrument: "true"}));
+	const toBeInstrumented = shouldInstrumentResource(getMockedRequest("Test.js", {instrument: "true"}), []);
 	t.true(toBeInstrumented);
 });
 
 test("shouldInstrumentResource: Resource flagged as instrumented, but defined matching regex exclude", (t) => {
 	const request = getMockedRequest("/resources/ui5/customlib/test/MyTest.js", {instrument: "true"});
-	const config = {
-		excludePatterns: [
-			/\/resources\/((ui5\/customlib\/test\/([^/]+[/])*[^/]*))(-dbg)?.js$/
-		]
-	};
-	const toBeInstrumented = shouldInstrumentResource(request, config);
+	const excludePatterns = [
+		/\/resources\/((ui5\/customlib\/test\/([^/]+[/])*[^/]*))(-dbg)?.js$/
+	];
+	const toBeInstrumented = shouldInstrumentResource(request, excludePatterns);
 	t.false(toBeInstrumented);
 });
 
 test("shouldInstrumentResource: Resource flagged as instrumented, but defined matching pattern exclude", (t) => {
 	const request = getMockedRequest("/resources/ui5/customlib/test/MyTest.js", {instrument: "true"});
-	const config = {
-		excludePatterns: [
-			"/resources/ui5/customlib/test/MyTest.js"
-		]
-	};
-	const toBeInstrumented = shouldInstrumentResource(request, config);
+	const excludePatterns = [
+		new RegExp("/resources/ui5/customlib/test/MyTest\\.js")
+	];
+	const toBeInstrumented = shouldInstrumentResource(request, excludePatterns);
 	t.false(toBeInstrumented);
 });
 
 test("shouldInstrumentResource: Resource flagged as instrumented, with no matching regex exclude", (t) => {
 	const request = getMockedRequest("/resources/ui5/customlib/src/Control1.js", {instrument: "true"});
-	const config = {
-		excludePatterns: [
-			/\/resources\/((ui5\/customlib\/test\/([^/]+[/])*[^/]*))(-dbg)?.js$/
-		]
-	};
-	const toBeInstrumented = shouldInstrumentResource(request, config);
+	const excludePatterns = [
+		/\/resources\/((ui5\/customlib\/test\/([^/]+[/])*[^/]*))(-dbg)?.js$/
+	];
+	const toBeInstrumented = shouldInstrumentResource(request, excludePatterns);
 	t.true(toBeInstrumented);
 });
 
 test("shouldInstrumentResource: Resource flagged as instrumented, with no matching pattern exclude", (t) => {
 	const request = getMockedRequest("/resources/ui5/customlib/src/Control.js", {instrument: "true"});
-	const config = {
-		excludePatterns: [
-			"/resources/ui5/customlib/test/MyTest.js"
-		]
-	};
-	const toBeInstrumented = shouldInstrumentResource(request, config);
+	const excludePatterns = [
+		new RegExp("/resources/ui5/customlib/test/MyTest\\.js")
+	];
+	const toBeInstrumented = shouldInstrumentResource(request, excludePatterns);
 	t.true(toBeInstrumented);
 });
 

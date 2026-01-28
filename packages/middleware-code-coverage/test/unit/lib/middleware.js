@@ -335,8 +335,12 @@ test("Instrument resources request for non instrumented resource", async (t) => 
 				resolve();
 			}
 		};
-		const next = () => {
-			t.pass("Should be called.");
+		const next = (error) => {
+			if (error) {
+				t.fail(error);
+			} else {
+				t.pass("Should be called without error.");
+			}
 			t.is(shouldInstrumentResourceStub.callCount, 1);
 			resolve();
 		};
@@ -382,10 +386,307 @@ test("Instrument resources request with no matching resources", async (t) => {
 				resolve();
 			}
 		};
-		const next = () => {
-			t.pass("Should be called.");
+		const next = (error) => {
+			if (error) {
+				t.fail(error);
+			} else {
+				t.pass("Should be called without error.");
+			}
 			t.is(log.verbose.callCount, 1);
 			t.is(log.warn.callCount, 1);
+			resolve();
+		};
+		middleware({
+			method: "GET",
+			url: "/resources/lib1/Control1.js",
+			path: "/resources/lib1/Control1.js",
+			query: {
+				instrument: "true"
+			}
+		}, res, next);
+	});
+});
+
+test("Instrument resources request with custom excludePatterns from configuration", async (t) => {
+	const log = {
+		verbose: sinon.stub()
+	};
+	const customResources = {
+		all: {
+			byGlob() {
+				return []; // No .library files
+			},
+			async byPath() {
+				return {
+					async getString() {
+						return sampleJS;
+					}
+				};
+			}
+		}
+	};
+	const options = {
+		configuration: {
+			excludePatterns: [
+				"/resources/lib1/Control1.js"
+			]
+		}
+	};
+	const {instrumenterMiddleware} = t.context;
+	const middleware = await instrumenterMiddleware({log, middlewareUtil, options, resources: customResources});
+
+	t.plan(2);
+
+	await new Promise((resolve) => {
+		const res = {
+			end() {
+				t.fail("should not be called because resource is excluded.");
+				resolve();
+			},
+			type() {
+				t.fail("should not be called because resource is excluded.");
+				resolve();
+			}
+		};
+		const next = (error) => {
+			if (error) {
+				t.fail(String(error));
+			} else {
+				t.pass("Should be called without error because resource is excluded via custom excludePatterns.");
+			}
+			t.is(log.verbose.callCount, 0, "verbose should not be called for excluded resources");
+			resolve();
+		};
+		middleware({
+			method: "GET",
+			url: "/resources/lib1/Control1.js",
+			path: "/resources/lib1/Control1.js",
+			query: {
+				instrument: "true"
+			}
+		}, res, next);
+	});
+});
+
+test("Instrument resources request with custom excludePatterns overrides .library excludes", async (t) => {
+	const log = {
+		verbose: sinon.stub()
+	};
+	const sDotLibrary = `<?xml version="1.0" encoding="UTF-8" ?>
+<library xmlns="http://www.sap.com/sap.ui.library.xsd" >
+	<name>ui5.lib1</name>
+	<appData>
+		<jscoverage xmlns="http://www.sap.com/ui5/buildext/jscoverage" >
+			<exclude name="ui5.lib1.ShouldNotExclude" />
+		</jscoverage>
+	</appData>
+</library>`;
+
+	const customResources = {
+		all: {
+			byGlob() {
+				return [{
+					getString() {
+						return sDotLibrary;
+					}
+				}];
+			},
+			async byPath() {
+				return {
+					async getString() {
+						return sampleJS;
+					}
+				};
+			}
+		}
+	};
+	const options = {
+		configuration: {
+			excludePatterns: [
+				"/resources/lib1/Control1.js"
+			]
+		}
+	};
+	const {instrumenterMiddleware} = t.context;
+	const middleware = await instrumenterMiddleware({log, middlewareUtil, options, resources: customResources});
+
+	t.plan(2);
+
+	await new Promise((resolve) => {
+		const res = {
+			end() {
+				t.fail("should not be called because resource is excluded by custom pattern.");
+				resolve();
+			},
+			type() {
+				t.fail("should not be called because resource is excluded by custom pattern.");
+				resolve();
+			}
+		};
+		const next = (error) => {
+			if (error) {
+				t.fail(error);
+			} else {
+				t.pass("Should be called without error - custom excludePatterns override .library excludes.");
+			}
+			t.is(log.verbose.callCount, 0, "verbose should not be called for excluded resources");
+			resolve();
+		};
+		middleware({
+			method: "GET",
+			url: "/resources/lib1/Control1.js",
+			path: "/resources/lib1/Control1.js",
+			query: {
+				instrument: "true"
+			}
+		}, res, next);
+	});
+});
+
+test("Instrument multiple JS files in sequence", async (t) => {
+	const log = {
+		verbose: sinon.stub()
+	};
+	const sampleJS2 = `sap.ui.define(["sap/ui/core/Control"], (Control) => Control.extend("ui5.sample.Control2", {
+		renderer: {
+			render(oRm, oControl) {
+				oRm.write("<div>Control2</div>");
+			}
+		}
+	}));`;
+
+	const customResources = {
+		all: {
+			byGlob() {
+				return [];
+			},
+			async byPath(path) {
+				if (path === "/resources/lib1/Control1.js") {
+					return {
+						async getString() {
+							return sampleJS;
+						}
+					};
+				} else if (path === "/resources/lib2/Control2.js") {
+					return {
+						async getString() {
+							return sampleJS2;
+						}
+					};
+				}
+				return undefined;
+			}
+		}
+	};
+
+	const customMiddlewareUtil = {
+		getPathname(req) {
+			return req.path;
+		}
+	};
+
+	const {instrumenterMiddleware} = t.context;
+	const middleware = await instrumenterMiddleware({
+		log,
+		middlewareUtil: customMiddlewareUtil,
+		resources: customResources
+	});
+
+	t.plan(7);
+
+	// First request for Control1.js
+	await new Promise((resolve) => {
+		const res = {
+			end(resource) {
+				t.true(resource.includes("path=\"/resources/lib1/Control1.js\""),
+					"First instrumented resource is correct");
+				t.true(resource.includes(
+					`${SOURCE_MAPPING_URL}=data:application/json;charset=utf-8;base64,`
+				), "First instrumented resource contains source map");
+				resolve();
+			},
+			type(type) {
+				t.is(type, ".js");
+			}
+		};
+		const next = () => {
+			t.fail("should not be called.");
+			resolve();
+		};
+		middleware({
+			method: "GET",
+			url: "/resources/lib1/Control1.js",
+			path: "/resources/lib1/Control1.js",
+			query: {
+				instrument: "true"
+			}
+		}, res, next);
+	});
+
+	// Second request for Control2.js
+	await new Promise((resolve) => {
+		const res = {
+			end(resource) {
+				t.true(resource.includes("path=\"/resources/lib2/Control2.js\""),
+					"Second instrumented resource is correct");
+				t.true(resource.includes(
+					`${SOURCE_MAPPING_URL}=data:application/json;charset=utf-8;base64,`
+				), "Second instrumented resource contains source map");
+				resolve();
+			},
+			type(type) {
+				t.is(type, ".js");
+			}
+		};
+		const next = () => {
+			t.fail("should not be called.");
+			resolve();
+		};
+		middleware({
+			method: "GET",
+			url: "/resources/lib2/Control2.js",
+			path: "/resources/lib2/Control2.js",
+			query: {
+				instrument: "true"
+			}
+		}, res, next);
+	});
+
+	// Verify verbose was called for both requests
+	t.is(log.verbose.callCount, 6, "verbose should be called 3 times per instrumented resource");
+});
+
+test("Instrument resources request with excludePatterns set to null", async (t) => {
+	const log = {
+		verbose: sinon.stub()
+	};
+	const {instrumenterMiddleware} = t.context;
+	const options = {
+		configuration: {
+			excludePatterns: null
+		}
+	};
+	const middleware = await instrumenterMiddleware({log, middlewareUtil, options, resources});
+
+	t.plan(4);
+
+	await new Promise((resolve) => {
+		const res = {
+			end(resource) {
+				t.true(resource.includes("path=\"/resources/lib1/Control1.js\""),
+					"Instrumented resource is correct");
+				t.true(resource.includes(
+					`${SOURCE_MAPPING_URL}=data:application/json;charset=utf-8;base64,`
+				), "Instrumented resource contains source map");
+				t.is(log.verbose.callCount, 3, "verbose should be called normally");
+				resolve();
+			},
+			type(type) {
+				t.is(type, ".js");
+			}
+		};
+		const next = () => {
+			t.fail("should not be called.");
 			resolve();
 		};
 		middleware({
