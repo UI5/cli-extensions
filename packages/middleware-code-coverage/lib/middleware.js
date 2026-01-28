@@ -69,7 +69,7 @@ export default async function({log, middlewareUtil, options={}, resources}) {
 		bodyParser.json({type: "application/json", limit: "50mb"}),
 		async (req, res) => {
 			const reportData = await reportCoverage(
-				req.body,
+				req.body ?? {},
 				config,
 				resources,
 				log

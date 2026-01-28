@@ -170,6 +170,42 @@ test("Coverage report request: no report data", async (t) => {
 	});
 });
 
+test("Coverage report request: no body", async (t) => {
+	const reportCoverageStub = sinon.stub();
+	const log = sinon.stub();
+	const instrumenterMiddleware = await esmock("../../../lib/middleware.js", {
+		"../../../lib/coverage-reporter.js": reportCoverageStub.returns(undefined)
+	});
+	const middleware = await instrumenterMiddleware({log, resources});
+
+	t.plan(2);
+
+	await new Promise((resolve) => {
+		const res = {
+			json() {
+				t.fail("should not be called.");
+				resolve();
+			},
+			err(message) {
+				t.is(reportCoverageStub.callCount, 1);
+				t.is(message, "No report data provided");
+				resolve();
+			}
+		};
+		const next = () => {
+			t.fail("should not be called.");
+			resolve();
+		};
+		middleware({
+			method: "POST",
+			url: "/.ui5/coverage/report",
+			headers: {
+				type: "application/json"
+			},
+		}, res, next);
+	});
+});
+
 test("Consume Coverage report request", async (t) => {
 	const serveStaticStub = sinon.stub();
 	const instrumenterMiddleware = await esmock.p("../../../lib/middleware.js", {
