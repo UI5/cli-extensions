@@ -61,4 +61,4 @@ Please follow our [Contribution Guidelines](https://github.com/UI5/cli-extension
 
 ## Licensing
 
-Copyright 2025 SAP SE or an SAP affiliate company and UI5 CLI Extensions contributors. Please see our [LICENSE.txt](../../LICENSE.txt) for copyright and license information. Detailed information including third-party components and their licensing/copyright information is available via the [REUSE tool](https://api.reuse.software/info/github.com/UI5/cli-extensions).
+Copyright 2026 SAP SE or an SAP affiliate company and UI5 CLI Extensions contributors. Please see our [LICENSE.txt](../../LICENSE.txt) for copyright and license information. Detailed information including third-party components and their licensing/copyright information is available via the [REUSE tool](https://api.reuse.software/info/github.com/UI5/cli-extensions).
