@@ -28,7 +28,7 @@
 		"npm": ">=8"
 	},
 	"devDependencies": {
-		"@commitlint/cli": "^20.4.0",
+		"@commitlint/cli": "^20.4.1",
 		"@commitlint/config-conventional": "^20.4.0",
 		"@ui5/cli": "^4.0.42",
 		"husky": "^9.1.7",
