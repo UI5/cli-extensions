@@ -10,7 +10,8 @@
 		"tmp/**",
 		".eslintrc.cjs",
 		"*.config.js",
-		"*.config.cjs"
+		"*.config.cjs",
+		"knip.config.js"
 	],
 	"check-coverage": true,
 	"statements": 100,
