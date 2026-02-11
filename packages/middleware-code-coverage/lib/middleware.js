@@ -17,6 +17,7 @@ import Router from "router";
 import path from "node:path";
 import serveStatic from "serve-static";
 import {promisify} from "node:util";
+import {AnyMap} from "@jridgewell/trace-mapping";
 
 /**
  * Custom middleware to instrument JS files with Istanbul.
@@ -60,7 +61,10 @@ export default async function({log, middlewareUtil, options={}, builtResources})
 
 	// Instrumenter instance
 	const instrumenter = createInstrumenter(instrumenterConfig);
-	const instrument = promisify(instrumenter.instrument.bind(instrumenter));
+	// Switch callback parameters to match promisify signature
+	const callbackStyleInstrumenter = (code, filename, inputSourceMap, callback) =>
+		instrumenter.instrument(code, filename, callback, inputSourceMap);
+	const instrument = promisify(callbackStyleInstrumenter);
 
 	const router = new Router();
 
@@ -152,11 +156,14 @@ export default async function({log, middlewareUtil, options={}, builtResources})
 			// Prefer the unminified -dbg source for faithful per-line coverage; fall back to the requested
 			// resource when no -dbg variant exists (minify task disabled, or the -dbg variant was requested
 			// directly).
+			let sourcePath;
 			let matchedResource;
 			if (!isDebugPath(pathname)) {
-				matchedResource = await builtResources.all.byPath(toDebugPath(pathname));
+				sourcePath = toDebugPath(pathname);
+				matchedResource = await builtResources.all.byPath(sourcePath);
 			}
 			if (!matchedResource) {
+				sourcePath = pathname;
 				matchedResource = await builtResources.all.byPath(pathname);
 			}
 
@@ -176,7 +183,18 @@ export default async function({log, middlewareUtil, options={}, builtResources})
 				return;
 			}
 
-			sendInstrumented(res, await instrument(await matchedResource.getString(), reportedPath), reportedPath);
+			// Feed istanbul the instrumented source's own source map when present (e.g. a TypeScript
+			// project's -dbg source mapping back to the original .ts), so coverage is attributed to the
+			// original source. Absent a sibling map (plain JS), this is a no-op.
+			// TODO: resolve the map via the source's sourceMappingURL rather than assuming a `.map` sibling.
+			const sourceMapResource = await builtResources.all.byPath(`${sourcePath}.map`);
+			const inputSourceMap = sourceMapResource ?
+				new AnyMap(JSON.parse(await sourceMapResource.getString())) :
+				undefined;
+
+			sendInstrumented(
+				res, await instrument(await matchedResource.getString(), reportedPath, inputSourceMap), reportedPath
+			);
 		} catch (err) {
 			// A reader rejection or an unparseable source (istanbul throwing) must not stall the dev
 			// server. Log the cause and defer to the error-handling stack.
