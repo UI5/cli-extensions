@@ -37,7 +37,7 @@
 	},
 	"scripts": {
 		"check-licenses": "licensee --errors-only",
-		"knip": "npm run knip --workspaces --if-present",
+		"knip": "knip --config knip.config.js",
 		"hooks:pre-push": "npm run lint:commit",
 		"lint": "npm run lint --workspaces --if-present",
 		"lint:commit": "commitlint -e",

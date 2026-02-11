@@ -16,20 +16,15 @@ const config = {
 	},
 
 	ignoreDependencies: [
-		"body-parser",
-		"istanbul-lib-coverage",
-		"istanbul-lib-instrument",
-		"istanbul-lib-report",
-		"istanbul-reports",
-		"router",
-		"serve-static",
-		"eslint",
-		"execa",
-		"get-port",
-		"nyc",
-		"supertest",
+		"@ui5/cli",
 		"@istanbuljs/esm-loader-hook"
 	],
+
+	workspaces: {
+		"packages/middleware-code-coverage": {
+			entry: ["lib/*.js", "test/**/*.js"]
+		}
+	}
 };
 
 export default config;

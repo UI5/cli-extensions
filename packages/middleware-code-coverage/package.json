@@ -54,15 +54,13 @@
 		"execa": "^9.6.1",
 		"get-port": "^7.1.0",
 		"globals": "^17.1.0",
-		"knip": "^5.83.1",
 		"nyc": "^17.1.0",
 		"sinon": "^21.0.1",
 		"supertest": "^7.2.2"
 	},
 	"scripts": {
-		"knip": "knip --config knip.config.js",
 		"lint": "eslint ./",
-		"test": "npm run lint && npm run knip && npm run test:unit:coverage && npm run test:integration",
+		"test": "npm run lint && npm run test:unit:coverage && npm run test:integration",
 		"test:unit": "ava",
 		"test:unit:coverage": "nyc ava --node-arguments=\"--experimental-loader=@istanbuljs/esm-loader-hook\"",
 		"test:unit:verbose": "cross-env UI5_LOG_LVL=verbose ava --verbose --serial",
