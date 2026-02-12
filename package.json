@@ -32,16 +32,17 @@
 		"@commitlint/config-conventional": "^20.4.1",
 		"@ui5/cli": "^4.0.42",
 		"husky": "^9.1.7",
+		"knip": "^5.83.1",
 		"licensee": "^11.1.1"
 	},
 	"scripts": {
 		"check-licenses": "licensee --errors-only",
-		"depcheck": "npm run depcheck --workspaces --if-present",
+		"knip": "knip --config knip.config.js",
 		"hooks:pre-push": "npm run lint:commit",
 		"lint": "npm run lint --workspaces --if-present",
 		"lint:commit": "commitlint -e",
 		"prepare": "node ./.husky/skip.js || husky",
-		"test": "npm run test --workspaces --if-present",
+		"test": "npm run test --workspaces --if-present && npm run knip",
 		"test:unit": "npm run test:unit --workspaces --if-present",
 		"test:unit:coverage": "npm run test:unit:coverage --workspaces --if-present",
 		"test:integration": "npm run test:integration --workspaces --if-present"
