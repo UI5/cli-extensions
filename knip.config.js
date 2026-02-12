@@ -32,7 +32,16 @@ const config = {
 
 	workspaces: {
 		"packages/middleware-code-coverage": {
-			entry: ["lib/*.js", "test/**/*.js"]
+			/**
+			 * UI5 custom middleware entry (see packages/middleware-code-coverage/ui5.yaml)
+			 */
+			entry: ["lib/middleware.js"],
+			ava: {
+				config: [
+					"ava.config.js",
+					"ava-integration.config.js"
+				]
+			}
 		}
 	}
 };
