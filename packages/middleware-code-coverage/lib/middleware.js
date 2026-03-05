@@ -14,6 +14,10 @@ import path from "node:path";
 import serveStatic from "serve-static";
 import {promisify} from "node:util";
 
+import {
+	AnyMap,
+} from "@jridgewell/trace-mapping";
+
 /**
  * Custom middleware to instrument JS files with Istanbul.
  *
@@ -46,7 +50,10 @@ export default async function({log, middlewareUtil, options={}, resources}) {
 
 	// Instrumenter instance
 	const instrumenter = createInstrumenter(instrumenterConfig);
-	const instrument = promisify(instrumenter.instrument.bind(instrumenter));
+	// Switch callback parameters to match promisify signature
+	const callbackStyleInstrumenter = (code, filename, inputSourceMap, callback) =>
+		instrumenter.instrument(code, filename, callback, inputSourceMap);
+	const instrument = promisify(callbackStyleInstrumenter);
 
 	const router = new Router();
 
@@ -134,8 +141,18 @@ export default async function({log, middlewareUtil, options={}, resources}) {
 			return;
 		}
 
+		// TODO: Add actual source map lookup (like in UI5 builder)
+		const inputSourceMapResource = await resources.all.byPath(`${pathname}.map`);
+		let inputSourceMap = inputSourceMapResource ?
+			JSON.parse(await inputSourceMapResource.getString()) :
+			undefined;
+
+		if (inputSourceMap) {
+			inputSourceMap = new AnyMap(inputSourceMap);
+		}
+
 		const source = await matchedResource.getString();
-		let instrumentedSource = await instrument(source, pathname);
+		let instrumentedSource = await instrument(source, pathname, inputSourceMap);
 
 		log.verbose(`...${pathname} instrumented!`);
 
