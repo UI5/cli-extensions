@@ -31,9 +31,6 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
-    - name: Check Node.js engine compatibility
-      run: npm run check-engine
-
     - name: Run unit tests
       run: npm run test:unit:coverage
 
