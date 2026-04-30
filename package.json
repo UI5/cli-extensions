@@ -32,7 +32,7 @@
 		"@commitlint/config-conventional": "^20.4.2",
 		"@ui5/cli": "^4.0.46",
 		"husky": "^9.1.7",
-		"knip": "^5.85.0",
+		"knip": "^6.7.0",
 		"licensee": "^11.1.1",
 		"check-engine-light": "0.4.0"
 	},
