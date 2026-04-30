@@ -33,7 +33,8 @@
 		"@ui5/cli": "^4.0.46",
 		"husky": "^9.1.7",
 		"knip": "^5.85.0",
-		"licensee": "^11.1.1"
+		"licensee": "^11.1.1",
+		"check-engine-light": "0.4.0"
 	},
 	"scripts": {
 		"check-licenses": "licensee --errors-only",
@@ -42,6 +43,7 @@
 		"lint": "npm run lint --workspaces --if-present",
 		"lint:commit": "commitlint -e",
 		"prepare": "node ./.husky/skip.js || husky",
+		"check-engine": "check-engine-light .",
 		"test": "npm run test --workspaces --if-present && npm run knip",
 		"test:unit": "npm run test:unit --workspaces --if-present",
 		"test:unit:coverage": "npm run test:unit:coverage --workspaces --if-present",
