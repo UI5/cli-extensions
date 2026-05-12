@@ -33,6 +33,7 @@
 		"node": "^20.11.0 || >=22.0.0"
 	},
 	"dependencies": {
+		"@jridgewell/trace-mapping": "^0.3.31",
 		"body-parser": "^2.2.2",
 		"istanbul-lib-coverage": "^3.2.2",
 		"istanbul-lib-instrument": "^6.0.3",
