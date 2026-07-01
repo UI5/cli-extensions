@@ -32,7 +32,10 @@ const resources = {
 		byGlob() {
 			return [];
 		},
-		async byPath() {
+		async byPath(filePath) {
+			if (!filePath.endsWith(".js")) {
+				return null;
+			}
 			return {
 				async getString() {
 					return sampleJS;
