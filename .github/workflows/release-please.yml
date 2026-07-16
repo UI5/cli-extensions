@@ -45,7 +45,7 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v6
     - name: Node.js LTS
-      uses: actions/setup-node@v6
+      uses: actions/setup-node@v7
       with:
         node-version: 24.x
     - name: Publish to npm
