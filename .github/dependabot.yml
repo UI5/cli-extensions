@@ -24,3 +24,7 @@ updates:
   commit-message:
     prefix: "deps"
     prefix-development: "build(deps-dev)"
+  ignore:
+    - dependency-name: "eslint-plugin-ava"
+      update-types: ["version-update:semver-major"]
+
