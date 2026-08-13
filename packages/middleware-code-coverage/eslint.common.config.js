@@ -16,11 +16,18 @@ export default [
 			"**/jsdocs/",
 		],
 	},
-	js.configs.recommended,
-	google,
-	ava.configs["flat/recommended"],
+	{
+		files: ["**/*.js", "**/*.mjs", "**/*.cjs"],
+		...js.configs.recommended,
+	},
+	{
+		files: ["**/*.js", "**/*.mjs", "**/*.cjs"],
+		...google,
+	},
+	...ava.configs.recommended,
 	{
 		name: "Common ESLint config used for all UI5 CLI repos",
+		files: ["**/*.js", "**/*.mjs", "**/*.cjs"],
 
 		plugins: {
 			jsdoc,

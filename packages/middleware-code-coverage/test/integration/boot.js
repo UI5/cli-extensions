@@ -1,4 +1,4 @@
-import {default as test, registerCompletionHandler} from "ava";
+import test, {registerCompletionHandler} from "ava";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
 import getPort from "get-port";
