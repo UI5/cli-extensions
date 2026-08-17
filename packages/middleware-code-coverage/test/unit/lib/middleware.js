@@ -61,17 +61,23 @@ test("Ping request", async (t) => {
 	const {instrumenterMiddleware, readJsonFile} = t.context;
 	const middleware = await instrumenterMiddleware({resources});
 
-	t.plan(6);
+	t.plan(7);
 
 	t.is(readJsonFile.callCount, 1, "package.json should be read once during middleware initialization");
 	t.deepEqual(readJsonFile.getCall(0).args, [new URL("../../../package.json", import.meta.url)]);
 
 	await new Promise((resolve) => {
+		let statusCode;
 		const res = {
-			json: function(body) {
-				t.is(Object.keys(body).length, 1);
-				t.is(Object.keys(body)[0], "version");
-				t.is(body.version, "0.0.0-test", "The version is returned");
+			writeHead(code) {
+				statusCode = code;
+			},
+			end(body) {
+				const parsed = JSON.parse(body);
+				t.is(statusCode, 200);
+				t.is(Object.keys(parsed).length, 1);
+				t.is(Object.keys(parsed)[0], "version");
+				t.is(parsed.version, "0.0.0-test", "The version is returned");
 				t.is(readJsonFile.callCount, 1, "package.json should not be read again per request");
 				resolve();
 			}
@@ -96,22 +102,24 @@ test("Coverage report request", async (t) => {
 	});
 	const middleware = await instrumenterMiddleware({log, resources});
 
-	t.plan(7);
+	t.plan(8);
 
 	await new Promise((resolve) => {
+		let statusCode;
 		const res = {
-			json(body) {
+			writeHead(code) {
+				statusCode = code;
+			},
+			end(body) {
+				const parsed = JSON.parse(body);
+				t.is(statusCode, 200);
 				t.is(reportCoverageStub.callCount, 1);
 				t.is(reportCoverageStub.getCall(0).args.length, 4);
 				t.is(reportCoverageStub.getCall(0).args[0], coverageData);
 				t.is(reportCoverageStub.getCall(0).args[1].cwd, "./");
 				t.is(reportCoverageStub.getCall(0).args[2], resources);
 				t.is(reportCoverageStub.getCall(0).args[3], log);
-				t.is(body, expectedCoverageReport);
-				resolve();
-			},
-			err() {
-				t.fail("should not be called.");
+				t.deepEqual(parsed, expectedCoverageReport);
 				resolve();
 			}
 		};
@@ -144,14 +152,14 @@ test("Coverage report request: no report data", async (t) => {
 	t.plan(2);
 
 	await new Promise((resolve) => {
+		let statusCode;
 		const res = {
-			json() {
-				t.fail("should not be called.");
-				resolve();
+			writeHead(code) {
+				statusCode = code;
 			},
-			err(message) {
+			end(body) {
+				t.is(statusCode, 400);
 				t.is(reportCoverageStub.callCount, 1);
-				t.is(message, "No report data provided");
 				resolve();
 			}
 		};
@@ -181,14 +189,14 @@ test("Coverage report request: no body", async (t) => {
 	t.plan(2);
 
 	await new Promise((resolve) => {
+		let statusCode;
 		const res = {
-			json() {
-				t.fail("should not be called.");
-				resolve();
+			writeHead(code) {
+				statusCode = code;
 			},
-			err(message) {
+			end(body) {
+				t.is(statusCode, 400);
 				t.is(reportCoverageStub.callCount, 1);
-				t.is(message, "No report data provided");
 				resolve();
 			}
 		};
@@ -235,7 +243,7 @@ test("Instrument resources request with source map", async (t) => {
 	const {instrumenterMiddleware} = t.context;
 	const middleware = await instrumenterMiddleware({log, middlewareUtil, resources});
 
-	t.plan(4);
+	t.plan(5);
 
 	await new Promise((resolve) => {
 		const res = {
@@ -248,8 +256,9 @@ test("Instrument resources request with source map", async (t) => {
 				t.is(log.verbose.callCount, 3);
 				resolve();
 			},
-			type(type) {
-				t.is(type, ".js");
+			setHeader(name, value) {
+				t.is(name, "Content-Type");
+				t.is(value, "text/javascript");
 			}
 		};
 		const next = () => {
@@ -258,11 +267,7 @@ test("Instrument resources request with source map", async (t) => {
 		};
 		middleware({
 			method: "GET",
-			url: "/resources/lib1/Control1.js",
-			path: "/resources/lib1/Control1.js",
-			query: {
-				instrument: "true"
-			}
+			url: "/resources/lib1/Control1.js?instrument=true"
 		}, res, next);
 	});
 });
@@ -275,7 +280,7 @@ test("Instrument resources request with source map: manual enablement", async (t
 	const options = {configuration: {instrument: {produceSourceMap: true}}};
 	const middleware = await instrumenterMiddleware({log, middlewareUtil, options, resources});
 
-	t.plan(4);
+	t.plan(5);
 
 	await new Promise((resolve) => {
 		const res = {
@@ -288,8 +293,9 @@ test("Instrument resources request with source map: manual enablement", async (t
 				t.is(log.verbose.callCount, 3);
 				resolve();
 			},
-			type(type) {
-				t.is(type, ".js");
+			setHeader(name, value) {
+				t.is(name, "Content-Type");
+				t.is(value, "text/javascript");
 			}
 		};
 		const next = () => {
@@ -298,11 +304,7 @@ test("Instrument resources request with source map: manual enablement", async (t
 		};
 		middleware({
 			method: "GET",
-			url: "/resources/lib1/Control1.js",
-			path: "/resources/lib1/Control1.js",
-			query: {
-				instrument: "true"
-			}
+			url: "/resources/lib1/Control1.js?instrument=true"
 		}, res, next);
 	});
 });
@@ -316,7 +318,7 @@ test("Instrument resources request without source map", async (t) => {
 	const options = {configuration: {instrument: {produceSourceMap: false}}};
 	const middleware = await instrumenterMiddleware({log, middlewareUtil, options, resources});
 
-	t.plan(4);
+	t.plan(5);
 
 	await new Promise((resolve) => {
 		const res = {
@@ -329,8 +331,9 @@ test("Instrument resources request without source map", async (t) => {
 				t.is(log.verbose.callCount, 2);
 				resolve();
 			},
-			type(type) {
-				t.is(type, ".js");
+			setHeader(name, value) {
+				t.is(name, "Content-Type");
+				t.is(value, "text/javascript");
 			}
 		};
 		const next = () => {
@@ -339,11 +342,7 @@ test("Instrument resources request without source map", async (t) => {
 		};
 		middleware({
 			method: "GET",
-			url: "/resources/lib1/Control1.js",
-			path: "/resources/lib1/Control1.js",
-			query: {
-				instrument: "true"
-			}
+			url: "/resources/lib1/Control1.js?instrument=true"
 		}, res, next);
 	});
 });
@@ -366,7 +365,7 @@ test("Instrument resources request for non instrumented resource", async (t) => 
 				t.fail("should not be called.");
 				resolve();
 			},
-			type() {
+			setHeader() {
 				t.fail("should not be called.");
 				resolve();
 			}
@@ -382,11 +381,7 @@ test("Instrument resources request for non instrumented resource", async (t) => 
 		};
 		middleware({
 			method: "GET",
-			url: "/resources/lib1/Control1.js",
-			path: "/resources/lib1/Control1.js",
-			query: {
-				instrument: "true"
-			}
+			url: "/resources/lib1/Control1.js?instrument=true"
 		}, res, next);
 	});
 });
@@ -417,7 +412,7 @@ test("Instrument resources request with no matching resources", async (t) => {
 				t.fail("should not be called.");
 				resolve();
 			},
-			type() {
+			setHeader() {
 				t.fail("should not be called.");
 				resolve();
 			}
@@ -434,11 +429,7 @@ test("Instrument resources request with no matching resources", async (t) => {
 		};
 		middleware({
 			method: "GET",
-			url: "/resources/lib1/Control1.js",
-			path: "/resources/lib1/Control1.js",
-			query: {
-				instrument: "true"
-			}
+			url: "/resources/lib1/Control1.js?instrument=true"
 		}, res, next);
 	});
 });
@@ -479,7 +470,7 @@ test("Instrument resources request with custom excludePatterns from configuratio
 				t.fail("should not be called because resource is excluded.");
 				resolve();
 			},
-			type() {
+			setHeader() {
 				t.fail("should not be called because resource is excluded.");
 				resolve();
 			}
@@ -495,11 +486,7 @@ test("Instrument resources request with custom excludePatterns from configuratio
 		};
 		middleware({
 			method: "GET",
-			url: "/resources/lib1/Control1.js",
-			path: "/resources/lib1/Control1.js",
-			query: {
-				instrument: "true"
-			}
+			url: "/resources/lib1/Control1.js?instrument=true"
 		}, res, next);
 	});
 });
@@ -554,7 +541,7 @@ test("Instrument resources request with custom excludePatterns overrides .librar
 				t.fail("should not be called because resource is excluded by custom pattern.");
 				resolve();
 			},
-			type() {
+			setHeader() {
 				t.fail("should not be called because resource is excluded by custom pattern.");
 				resolve();
 			}
@@ -570,11 +557,7 @@ test("Instrument resources request with custom excludePatterns overrides .librar
 		};
 		middleware({
 			method: "GET",
-			url: "/resources/lib1/Control1.js",
-			path: "/resources/lib1/Control1.js",
-			query: {
-				instrument: "true"
-			}
+			url: "/resources/lib1/Control1.js?instrument=true"
 		}, res, next);
 	});
 });
@@ -617,7 +600,7 @@ test("Instrument multiple JS files in sequence", async (t) => {
 
 	const customMiddlewareUtil = {
 		getPathname(req) {
-			return req.path;
+			return new URL(req.url, "http://localhost").pathname;
 		}
 	};
 
@@ -628,7 +611,7 @@ test("Instrument multiple JS files in sequence", async (t) => {
 		resources: customResources
 	});
 
-	t.plan(7);
+	t.plan(9);
 
 	// First request for Control1.js
 	await new Promise((resolve) => {
@@ -641,8 +624,9 @@ test("Instrument multiple JS files in sequence", async (t) => {
 				), "First instrumented resource contains source map");
 				resolve();
 			},
-			type(type) {
-				t.is(type, ".js");
+			setHeader(name, value) {
+				t.is(name, "Content-Type");
+				t.is(value, "text/javascript");
 			}
 		};
 		const next = () => {
@@ -651,11 +635,7 @@ test("Instrument multiple JS files in sequence", async (t) => {
 		};
 		middleware({
 			method: "GET",
-			url: "/resources/lib1/Control1.js",
-			path: "/resources/lib1/Control1.js",
-			query: {
-				instrument: "true"
-			}
+			url: "/resources/lib1/Control1.js?instrument=true"
 		}, res, next);
 	});
 
@@ -670,8 +650,9 @@ test("Instrument multiple JS files in sequence", async (t) => {
 				), "Second instrumented resource contains source map");
 				resolve();
 			},
-			type(type) {
-				t.is(type, ".js");
+			setHeader(name, value) {
+				t.is(name, "Content-Type");
+				t.is(value, "text/javascript");
 			}
 		};
 		const next = () => {
@@ -680,11 +661,7 @@ test("Instrument multiple JS files in sequence", async (t) => {
 		};
 		middleware({
 			method: "GET",
-			url: "/resources/lib2/Control2.js",
-			path: "/resources/lib2/Control2.js",
-			query: {
-				instrument: "true"
-			}
+			url: "/resources/lib2/Control2.js?instrument=true"
 		}, res, next);
 	});
 
@@ -704,7 +681,7 @@ test("Instrument resources request with excludePatterns set to null", async (t) 
 	};
 	const middleware = await instrumenterMiddleware({log, middlewareUtil, options, resources});
 
-	t.plan(4);
+	t.plan(5);
 
 	await new Promise((resolve) => {
 		const res = {
@@ -717,8 +694,9 @@ test("Instrument resources request with excludePatterns set to null", async (t) 
 				t.is(log.verbose.callCount, 3, "verbose should be called normally");
 				resolve();
 			},
-			type(type) {
-				t.is(type, ".js");
+			setHeader(name, value) {
+				t.is(name, "Content-Type");
+				t.is(value, "text/javascript");
 			}
 		};
 		const next = () => {
@@ -727,11 +705,7 @@ test("Instrument resources request with excludePatterns set to null", async (t) 
 		};
 		middleware({
 			method: "GET",
-			url: "/resources/lib1/Control1.js",
-			path: "/resources/lib1/Control1.js",
-			query: {
-				instrument: "true"
-			}
+			url: "/resources/lib1/Control1.js?instrument=true"
 		}, res, next);
 	});
 });
