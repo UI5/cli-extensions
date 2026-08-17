@@ -75,9 +75,12 @@ export default async function({log, middlewareUtil, options={}, resources}) {
 			);
 
 			if (reportData) {
-				res.json(reportData);
+				const body = JSON.stringify(reportData);
+				res.writeHead(200, {"Content-Type": "application/json"});
+				res.end(body);
 			} else {
-				res.err("No report data provided");
+				res.writeHead(400, {"Content-Type": "application/json"});
+				res.end(JSON.stringify({error: "No report data provided"}));
 			}
 		}
 	);
@@ -86,9 +89,9 @@ export default async function({log, middlewareUtil, options={}, resources}) {
 	 * Endpoint to check for middleware existence
 	 */
 	router.get("/.ui5/coverage/ping", async (req, res) => {
-		res.json({
-			version: middlewareVersion
-		});
+		const body = JSON.stringify({version: middlewareVersion});
+		res.writeHead(200, {"Content-Type": "application/json"});
+		res.end(body);
 	});
 
 	/**
@@ -123,9 +126,8 @@ export default async function({log, middlewareUtil, options={}, resources}) {
 			return;
 		}
 
-		log.verbose(`handling ${req.path}...`);
-
 		const pathname = middlewareUtil.getPathname(req);
+		log.verbose(`handling ${pathname}...`);
 		const matchedResource = await resources.all.byPath(pathname);
 
 		if (!matchedResource) {
@@ -147,7 +149,7 @@ export default async function({log, middlewareUtil, options={}, resources}) {
 		}
 
 		// send out instrumented source + source map
-		res.type(".js");
+		res.setHeader("Content-Type", "text/javascript");
 		res.end(instrumentedSource);
 	});
 

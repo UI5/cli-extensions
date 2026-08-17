@@ -56,16 +56,18 @@ export function getLatestSourceMap(instrumenter) {
  * @returns {boolean}
  */
 export function shouldInstrumentResource(request, excludePatterns) {
+	if (!request.url) {
+		return false;
+	}
+	const {pathname, searchParams} = new URL(request.url, "http://localhost");
 	return (
-		request.path &&
-		request.path.endsWith(".js") && // Only .js file requests
-		!isFalsyValue(request.query.instrument) && // instrument only flagged files, ignore "falsy" values
+		pathname.endsWith(".js") &&
+		!isFalsyValue(searchParams.get("instrument")) &&
 		!(excludePatterns || []).some((pattern) => {
 			if (pattern instanceof RegExp) {
-				// The ones coming from .library files are regular expressions
-				return pattern.test(request.path);
+				return pattern.test(pathname);
 			} else {
-				return request.path.includes(pattern);
+				return pathname.includes(pattern);
 			}
 		})
 	);

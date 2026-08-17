@@ -13,10 +13,15 @@ import {
 const SOURCE_MAPPING_URL = "//" + "# sourceMappingURL";
 
 function getMockedRequest(path="", query={}) {
-	return {
-		path,
-		query
-	};
+	const url = new URL(path, "http://localhost");
+	for (const [key, value] of Object.entries(query)) {
+		if (typeof value === "string") {
+			url.searchParams.set(key, value);
+		}
+		// JS-falsy non-string values (false, 0, null, undefined) are omitted;
+		// searchParams.get() returns null for absent keys, which isFalsyValue covers.
+	}
+	return {url: url.pathname + url.search};
 }
 
 test("createInstrumentationConfig: default config", async (t) => {
@@ -287,6 +292,10 @@ test("getLatestSourceMap: no source map", (t) => {
 test("shouldInstrumentResource: No JS file", (t) => {
 	const toBeInstrumented = shouldInstrumentResource(getMockedRequest("Test.html"));
 	t.false(toBeInstrumented);
+});
+
+test("shouldInstrumentResource: Request without URL", (t) => {
+	t.false(shouldInstrumentResource({}));
 });
 
 test("shouldInstrumentResource: Non flagged resources", (t) => {
