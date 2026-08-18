@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.0.4](https://github.com/UI5/cli-extensions/compare/middleware-code-coverage-v2.0.3...middleware-code-coverage-v2.0.4) (2026-08-18)
+
+
+### Bug Fixes
+
+* **middleware-code-coverage:** Drop Express coupling ([a1ef5af](https://github.com/UI5/cli-extensions/commit/a1ef5af169a80c3bde97f529b79dba3b54a60b53))
+
+
+### Dependencies
+
+* Bump body-parser from 2.2.2 to 2.3.0 ([9bb3e07](https://github.com/UI5/cli-extensions/commit/9bb3e07fe921ebfc3269355fe041298464c299aa))
+* Bump uuid and nyc ([#572](https://github.com/UI5/cli-extensions/issues/572)) ([855c73c](https://github.com/UI5/cli-extensions/commit/855c73caf9cb62c936190e2b00bd20029d4ecb13))
+
 ## [2.0.3](https://github.com/UI5/cli-extensions/compare/middleware-code-coverage-v2.0.2...middleware-code-coverage-v2.0.3) (2026-01-28)
 
 
