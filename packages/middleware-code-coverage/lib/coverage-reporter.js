@@ -2,6 +2,7 @@ import libReport from "istanbul-lib-report";
 import reports from "istanbul-reports";
 import istanbulLibCoverage from "istanbul-lib-coverage";
 import path from "node:path";
+import {toDebugPath, isDebugPath} from "./util.js";
 
 /**
  * @typedef {object} @ui5/middleware-code-coverage/Coverage
@@ -42,6 +43,12 @@ export default async function(coverageData, config, builtResources, log) {
 		istanbulLibCoverage.createCoverageMap(globalCoverageMap);
 	const reportConfig = {...config.report};
 
+	// In unbundle mode the middleware instruments the unminified -dbg source but reports coverage
+	// under the runtime path. The report must therefore read the -dbg variant to show the real
+	// source; in the other modes the coverage keys match the resources that were actually
+	// instrumented, so the key is used directly.
+	const preferDebugSource = config.bundleHandling === "unbundle";
+
 	// Frontend config for watermarks should take precedence if present.
 	reportConfig.watermarks = {...reportConfig.watermarks, ...watermarks};
 
@@ -51,7 +58,15 @@ export default async function(coverageData, config, builtResources, log) {
 		Object.keys(coverageMap.data).map(async (key) => {
 			let source = "";
 
-			const matchedResource = await builtResources.all.byPath(key);
+			// Prefer the -dbg variant (the original unminified source) over the minified resource at
+			// the key itself. This inverts the instrument-time lookup done in unbundle mode.
+			let matchedResource;
+			if (preferDebugSource && !isDebugPath(key)) {
+				matchedResource = await builtResources.all.byPath(toDebugPath(key));
+			}
+			if (!matchedResource) {
+				matchedResource = await builtResources.all.byPath(key);
+			}
 
 			if (matchedResource) {
 				source = await matchedResource.getString();
