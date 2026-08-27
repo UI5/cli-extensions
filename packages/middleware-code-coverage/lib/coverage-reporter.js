@@ -12,20 +12,25 @@ import path from "node:path";
 /**
  * Reports the coverage
  *
+ * In bundle-instrumentation mode every file of a bundle is instrumented, so the client is
+ * responsible for trimming <code>window.__coverage__</code> down to the files of interest (e.g.
+ * honoring <code>data-sap-ui-cover-only</code> / <code>data-sap-ui-cover-never</code>) before
+ * POSTing it. The reporter therefore reports exactly the coverage keys it receives.
+ *
  * @param {object} coverageData
  * @param {*} config
- * @param {object} resources Resource collections
- * @param {module:@ui5/fs.AbstractReader} resources.all Reader or Collection to read resources of the
+ * @param {object} builtResources Readers for accessing the build output
+ * @param {module:@ui5/fs.AbstractReader} builtResources.all Reader to access the build output of the
  *  root project and its dependencies
- * @param {module:@ui5/fs.AbstractReader} resources.rootProject Reader or Collection to read resources of
- *  the project the server is started in
- * @param {module:@ui5/fs.AbstractReader} resources.dependencies Reader or Collection to read resources of
- *  the projects dependencies
+ * @param {module:@ui5/fs.AbstractReader} builtResources.rootProject Reader to access the build output of
+ *  the root project
+ * @param {module:@ui5/fs.AbstractReader} builtResources.dependencies Reader to access the build output of
+ *  the project's dependencies
  * @param {@ui5/logger/Logger} log
  *  Logger instance of the custom middleware instance
  * @returns {@ui5/middleware-code-coverage/Coverage}
  */
-export default async function(coverageData, config, resources, log) {
+export default async function(coverageData, config, builtResources, log) {
 	let {coverage: globalCoverageMap, watermarks} = coverageData;
 
 	// For compatibility reasons with the old structure, we need first to check
@@ -46,7 +51,7 @@ export default async function(coverageData, config, resources, log) {
 		Object.keys(coverageMap.data).map(async (key) => {
 			let source = "";
 
-			const matchedResource = await resources.all.byPath(key);
+			const matchedResource = await builtResources.all.byPath(key);
 
 			if (matchedResource) {
 				source = await matchedResource.getString();
