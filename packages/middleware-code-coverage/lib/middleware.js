@@ -232,7 +232,8 @@ export default async function({log, middlewareUtil, options={}, resources, built
 		// Do not serve bundles: force the runtime to load individual modules instead. Some bundles
 		// however share a path with a real source file (e.g. sap-ui-core.js, runTest.js): the built
 		// output at that path is the bundle, but the unbuilt resources still hold the actual source.
-		// In that case serve/instrument the source rather than responding with 404.
+		// In that case the source must be served (a 404 would leave the runtime without any code for
+		// that module): instrument it when requested with ?instrument, otherwise serve it verbatim.
 		if (isBundle(requestedSource)) {
 			const sourceResource = await resources.all.byPath(pathname);
 			if (!sourceResource) {
@@ -242,12 +243,15 @@ export default async function({log, middlewareUtil, options={}, resources, built
 				return;
 			}
 
-			log.verbose(`${pathname} is a bundle but has a matching source resource; serving the source`);
-			if (!shouldInstrumentResource(req, excludePatterns)) {
-				next();
-				return;
+			const sourceString = await sourceResource.getString();
+			if (shouldInstrumentResource(req, excludePatterns)) {
+				log.verbose(`${pathname} is a bundle with a matching source resource; instrumenting the source`);
+				sendInstrumented(res, await instrument(sourceString, pathname), pathname);
+			} else {
+				log.verbose(`${pathname} is a bundle with a matching source resource; serving the source`);
+				res.setHeader("Content-Type", "text/javascript");
+				res.end(sourceString);
 			}
-			sendInstrumented(res, await instrument(await sourceResource.getString(), pathname), pathname);
 			return;
 		}
 
