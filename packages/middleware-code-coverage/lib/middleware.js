@@ -43,6 +43,9 @@ import {promisify} from "node:util";
  * 										to request individual modules. Each requested module is served from its
  * 										unminified source (the <code>-dbg</code> variant when the minify task is active)
  * 										and, when requested with <code>?instrument</code>, instrumented against it.
+ * @param {object} parameters.resources Readers for accessing the (unbuilt) project resources
+ * @param {module:@ui5/fs.AbstractReader} parameters.resources.all Reader to access the resources of the
+ * 										root project and its dependencies
  * @param {object} parameters.builtResources Readers for accessing the build output.
  * 										Only provided for Specification Version 5.0 and later.
  * @param {module:@ui5/fs.AbstractReader} parameters.builtResources.all Reader to access the build output of the
@@ -53,7 +56,7 @@ import {promisify} from "node:util";
  * 										the project's dependencies
  * @returns {Function} Middleware function to use
  */
-export default async function({log, middlewareUtil, options={}, builtResources}) {
+export default async function({log, middlewareUtil, options={}, resources, builtResources}) {
 	const config = await createInstrumentationConfig(options.configuration);
 	const {
 		report: reporterConfig,
@@ -226,12 +229,25 @@ export default async function({log, middlewareUtil, options={}, builtResources})
 
 		const requestedSource = await requestedResource.getString();
 
-		// Do not serve bundles at all: 404 makes the runtime load individual modules instead. This is
-		// independent of ?instrument, so preloads requested without the query param are also blocked.
+		// Do not serve bundles: force the runtime to load individual modules instead. Some bundles
+		// however share a path with a real source file (e.g. sap-ui-core.js, runTest.js): the built
+		// output at that path is the bundle, but the unbuilt resources still hold the actual source.
+		// In that case serve/instrument the source rather than responding with 404.
 		if (isBundle(requestedSource)) {
-			log.verbose(`${pathname} is a bundle, responding with 404 to force individual module loading`);
-			res.statusCode = 404;
-			res.end();
+			const sourceResource = await resources.all.byPath(pathname);
+			if (!sourceResource) {
+				log.verbose(`${pathname} is a bundle, responding with 404 to force individual module loading`);
+				res.statusCode = 404;
+				res.end();
+				return;
+			}
+
+			log.verbose(`${pathname} is a bundle but has a matching source resource; serving the source`);
+			if (!shouldInstrumentResource(req, excludePatterns)) {
+				next();
+				return;
+			}
+			sendInstrumented(res, await instrument(await sourceResource.getString(), pathname), pathname);
 			return;
 		}
 
