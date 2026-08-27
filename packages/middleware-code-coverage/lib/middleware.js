@@ -20,6 +20,27 @@ import serveStatic from "serve-static";
 import {promisify} from "node:util";
 
 /**
+ * Whether a request originates from a page loaded in coverage mode. Such pages carry a
+ * <code>coverage</code> query parameter (with or without a value) in their URL, which reaches the
+ * middleware via the <code>Referer</code> header. Only these pages request instrumented resources,
+ * so the gate lets the middleware stay inert outside an actual coverage run.
+ *
+ * @param {object} req Request
+ * @returns {boolean}
+ */
+function isCoverageReferer(req) {
+	const referer = req.headers?.referer;
+	if (!referer) {
+		return false;
+	}
+	try {
+		return new URL(referer).searchParams.has("coverage");
+	} catch {
+		return false;
+	}
+}
+
+/**
  * Custom middleware to instrument JS files with Istanbul.
  *
  * @param {object} parameters Parameters
@@ -146,10 +167,13 @@ export default async function({log, middlewareUtil, options={}, resources, built
 			}
 		}
 
-		if (unbundleMode) {
-			// Unbundle mode has its own gating: bundles are 404'd unconditionally (independent of the
-			// ?instrument query param) so the runtime falls back to individual modules; those modules
-			// are instrumented only when requested with ?instrument.
+		if (unbundleMode && isCoverageReferer(req)) {
+			// Unbundle mode has its own gating, but only engages for requests originating from a page
+			// loaded in coverage mode (its URL carries a ?coverage query param, seen via the Referer
+			// header). Only such pages send ?instrument requests, so outside a coverage run we leave
+			// bundles untouched instead of 404'ing them on every request. When engaged, bundles are
+			// 404'd (independent of ?instrument) so the runtime falls back to individual modules; those
+			// modules are instrumented only when requested with ?instrument.
 			await handleUnbundled(req, res, next, excludePatterns);
 			return;
 		}
