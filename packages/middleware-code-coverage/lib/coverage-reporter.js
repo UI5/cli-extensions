@@ -13,10 +13,9 @@ import {toDebugPath, isDebugPath} from "./util.js";
 /**
  * Reports the coverage
  *
- * In bundle-instrumentation mode every file of a bundle is instrumented, so the client is
- * responsible for trimming <code>window.__coverage__</code> down to the files of interest (e.g.
- * honoring <code>data-sap-ui-cover-only</code> / <code>data-sap-ui-cover-never</code>) before
- * POSTing it. The reporter therefore reports exactly the coverage keys it receives.
+ * Coverage is keyed by the runtime path, while the middleware instruments the unminified
+ * <code>-dbg</code> source. The report therefore reads the <code>-dbg</code> variant (when present)
+ * to render the real source, falling back to the resource at the key itself.
  *
  * @param {object} coverageData
  * @param {*} config
@@ -43,12 +42,6 @@ export default async function(coverageData, config, builtResources, log) {
 		istanbulLibCoverage.createCoverageMap(globalCoverageMap);
 	const reportConfig = {...config.report};
 
-	// In unbundle mode the middleware instruments the unminified -dbg source but reports coverage
-	// under the runtime path. The report must therefore read the -dbg variant to show the real
-	// source; in the other modes the coverage keys match the resources that were actually
-	// instrumented, so the key is used directly.
-	const preferDebugSource = config.bundleHandling === "unbundle";
-
 	// Frontend config for watermarks should take precedence if present.
 	reportConfig.watermarks = {...reportConfig.watermarks, ...watermarks};
 
@@ -59,9 +52,9 @@ export default async function(coverageData, config, builtResources, log) {
 			let source = "";
 
 			// Prefer the -dbg variant (the original unminified source) over the minified resource at
-			// the key itself. This inverts the instrument-time lookup done in unbundle mode.
+			// the key itself. This inverts the instrument-time lookup done by the middleware.
 			let matchedResource;
-			if (preferDebugSource && !isDebugPath(key)) {
+			if (!isDebugPath(key)) {
 				matchedResource = await builtResources.all.byPath(toDebugPath(key));
 			}
 			if (!matchedResource) {

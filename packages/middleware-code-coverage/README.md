@@ -13,9 +13,9 @@ You find this middleware in action in the [OpenUI5 Sample App](https://github.co
 
 ## Requirements
 
-This middleware requires UI5 CLI v3 and is meant for UI5 1.113 and above.
+This middleware requires UI5 CLI v5 (currently still in development) and is meant for UI5 1.113 and above. It relies on the `builtResources` parameter (available for custom middleware defining Specification Version 5.0 and later) to access the build output.
 
-**Note:** The `bundleHandling` option requires UI5 CLI v5, which is currently still in development. It relies on the `builtResources` parameter (available for custom middleware defining Specification Version 5.0 and later) to access the build output.
+**Note:** To obtain faithful per-file coverage for code that would otherwise be delivered via a bundle (e.g. `*-preload.js`), load the coverage test page with `sap-ui-debug="<cover globs>"` (the string/glob form, which does not reboot the page). The UI5 runtime then requests the covered modules individually as their unminified `-dbg` sources, which this middleware instruments and reports under the runtime path.
 
 ## Limitations
 
@@ -144,11 +144,6 @@ npm install @ui5/middleware-code-coverage --save-dev
 `cwd` [String]: Root folder. Defaults to `"./"` of the project consuming the middleware.
 
 `excludePatterns` [Array]: Patterns to exclude from instrumenting. Defaults to `[]`.
-
-`bundleHandling` [String]: Controls how UI5 bundles (e.g. `*-preload.js`) are handled. Requires UI5 CLI v5 (see [Requirements](#requirements)). When unset (default), bundles are treated like any other resource and the original per-file, `?instrument`-query-param-driven behavior applies. Supported values:
-
-- `"instrument"`: Bundles are instrumented in place and coverage is attributed to the individual original source files via the bundle's indexed source map. In this mode **all** JS resources are instrumented, independent of the `?instrument` query parameter. The client is therefore responsible for trimming `window.__coverage__` down to the files of interest (e.g. honoring `data-sap-ui-cover-only` / `data-sap-ui-cover-never`) before POSTing it to `/.ui5/coverage/report`.
-- `"unbundle"`: Bundles are not served (responded with `404`), forcing the runtime to request the individual modules instead. Each requested module is served from its unminified source — the `-dbg` variant when the minify task is active, or the runtime file itself when minification is disabled — and, when requested with `?instrument`, instrumented against that source. File selection stays on the client via the `?instrument` query parameter, as in the default behavior.
 
 `report` [Object]: Settings for the reporter.
 
