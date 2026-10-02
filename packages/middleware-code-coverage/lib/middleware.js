@@ -5,11 +5,10 @@ import {
 	getLatestSourceMap,
 	readJsonFile,
 	getLibraryCoverageExcludePatterns,
-	instrumentBundle,
-	isBundle,
 	toDebugPath,
 	fromDebugPath,
-	isDebugPath
+	isDebugPath,
+	isBundleResource
 } from "./util.js";
 import {createInstrumenter} from "istanbul-lib-instrument";
 import reportCoverage from "./coverage-reporter.js";
@@ -20,28 +19,16 @@ import serveStatic from "serve-static";
 import {promisify} from "node:util";
 
 /**
- * Whether a request originates from a page loaded in coverage mode. Such pages carry a
- * <code>coverage</code> query parameter (with or without a value) in their URL, which reaches the
- * middleware via the <code>Referer</code> header. Only these pages request instrumented resources,
- * so the gate lets the middleware stay inert outside an actual coverage run.
- *
- * @param {object} req Request
- * @returns {boolean}
- */
-function isCoverageReferer(req) {
-	const referer = req.headers?.referer;
-	if (!referer) {
-		return false;
-	}
-	try {
-		return new URL(referer).searchParams.has("coverage");
-	} catch {
-		return false;
-	}
-}
-
-/**
  * Custom middleware to instrument JS files with Istanbul.
+ *
+ * Coverage runs against the build output (<code>builtResources</code>). To obtain faithful per-file
+ * coverage the client is expected to load the coverage test page with
+ * <code>sap-ui-debug="&lt;cover globs&gt;"</code>, so the UI5 runtime requests the covered modules
+ * individually (as their unminified <code>-dbg</code> variant) instead of from a bundle. This
+ * middleware then instruments each requested <code>?instrument</code> resource — preferring the
+ * unminified <code>-dbg</code> source — and reports it under the runtime path. Bundles (identified
+ * by their <code>ui5:IsBundle</code> resource tag) are never instrumented; they are served verbatim
+ * by the following middleware.
  *
  * @param {object} parameters Parameters
  * @param {@ui5/logger/Logger} parameters.log
@@ -51,22 +38,6 @@ function isCoverageReferer(req) {
  * 										[MiddlewareUtil]{https://ui5.github.io/cli/v3/api/@ui5_server_middleware_MiddlewareUtil.html} instance
  * @param {object} parameters.options Options
  * @param {object} [parameters.options.configuration] Custom server middleware configuration if given in ui5.yaml
- * @param {string} [parameters.options.configuration.bundleHandling] Controls how UI5 bundles
- * 										(e.g. <code>*-preload.js</code>) are handled. When unset (default), bundles are
- * 										treated like any other resource and the original per-file,
- * 										<code>?instrument</code> query-param-driven behavior applies.
- * 										<br><code>"instrument"</code>: bundles are instrumented in place and coverage is
- * 										attributed to the original source files via the bundle's indexed source map.
- * 										Every JS resource is instrumented regardless of the <code>?instrument</code>
- * 										query parameter, and the set of files included in the report is determined from
- * 										the client's report request.
- * 										<br><code>"unbundle"</code>: bundles are not served (404), forcing the runtime
- * 										to request individual modules. Each requested module is served from its
- * 										unminified source (the <code>-dbg</code> variant when the minify task is active)
- * 										and, when requested with <code>?instrument</code>, instrumented against it.
- * @param {object} parameters.resources Readers for accessing the (unbuilt) project resources
- * @param {module:@ui5/fs.AbstractReader} parameters.resources.all Reader to access the resources of the
- * 										root project and its dependencies
  * @param {object} parameters.builtResources Readers for accessing the build output.
  * 										Only provided for Specification Version 5.0 and later.
  * @param {module:@ui5/fs.AbstractReader} parameters.builtResources.all Reader to access the build output of the
@@ -77,17 +48,13 @@ function isCoverageReferer(req) {
  * 										the project's dependencies
  * @returns {Function} Middleware function to use
  */
-export default async function({log, middlewareUtil, options={}, resources, builtResources}) {
+export default async function({log, middlewareUtil, options={}, builtResources}) {
 	const config = await createInstrumentationConfig(options.configuration);
 	const {
 		report: reporterConfig,
 		instrument: instrumenterConfig,
-		bundleHandling,
 		...generalConfig
 	} = config;
-
-	const instrumentMode = bundleHandling === "instrument";
-	const unbundleMode = bundleHandling === "unbundle";
 
 	const {version: middlewareVersion} = await readJsonFile(new URL("../package.json", import.meta.url));
 
@@ -167,20 +134,8 @@ export default async function({log, middlewareUtil, options={}, resources, built
 			}
 		}
 
-		if (unbundleMode && isCoverageReferer(req)) {
-			// Unbundle mode has its own gating, but only engages for requests originating from a page
-			// loaded in coverage mode (its URL carries a ?coverage query param, seen via the Referer
-			// header). Only such pages send ?instrument requests, so outside a coverage run we leave
-			// bundles untouched instead of 404'ing them on every request. When engaged, bundles are
-			// 404'd (independent of ?instrument) so the runtime falls back to individual modules; those
-			// modules are instrumented only when requested with ?instrument.
-			await handleUnbundled(req, res, next, excludePatterns);
-			return;
-		}
-
-		// Skip files which should not be instrumented. In the "instrument" bundle mode the
-		// ?instrument query param is ignored and every (non-excluded) JS resource is instrumented.
-		if (!shouldInstrumentResource(req, excludePatterns, instrumentMode)) {
+		// Only instrument JS resources the client opts into via ?instrument (and which are not excluded).
+		if (!shouldInstrumentResource(req, excludePatterns)) {
 			next();
 			return;
 		}
@@ -188,7 +143,21 @@ export default async function({log, middlewareUtil, options={}, resources, built
 		const pathname = middlewareUtil.getPathname(req);
 		log.verbose(`handling ${pathname}...`);
 
-		const matchedResource = await builtResources.all.byPath(pathname);
+		// Report against the runtime path even when the browser requested the -dbg variant directly
+		// (as it does when the page is loaded with sap-ui-debug), so coverage keys line up with what
+		// the client selects and what the reporter reads.
+		const reportedPath = isDebugPath(pathname) ? fromDebugPath(pathname) : pathname;
+
+		// Prefer the unminified -dbg source for faithful per-line coverage; fall back to the requested
+		// resource when no -dbg variant exists (minify task disabled, or the -dbg variant was requested
+		// directly).
+		let matchedResource;
+		if (!isDebugPath(pathname)) {
+			matchedResource = await builtResources.all.byPath(toDebugPath(pathname));
+		}
+		if (!matchedResource) {
+			matchedResource = await builtResources.all.byPath(pathname);
+		}
 
 		if (!matchedResource) {
 			log.warn(`${pathname} not found`);
@@ -196,113 +165,18 @@ export default async function({log, middlewareUtil, options={}, resources, built
 			return;
 		}
 
-		const source = await matchedResource.getString();
-
-		if (instrumentMode) {
-			// Attempt bundle-aware instrumentation first: attribute coverage to the original source
-			// files referenced by the bundle's indexed source map.
-			const result = await instrumentBundle(
-				source, pathname, builtResources.all, createInstrumenter, instrumenterConfig
-			);
-			if (result.indexed) {
-				log.verbose(`...${pathname} instrumented as bundle for ${result.sources.length} source(s)!`);
-				res.setHeader("Content-Type", "text/javascript");
-				res.end(result.code);
-				return;
-			}
-			// Not an indexed-map bundle: fall through to plain per-file instrumentation below.
+		// Never instrument bundles (e.g. *-preload.js): instrumenting the concatenated, minified
+		// bundle would corrupt coverage. Bundles are served verbatim by the following middleware;
+		// coverage comes from the individual modules the client requests instead (loaded via
+		// sap-ui-debug). Detected via the resource's `ui5:IsBundle` tag.
+		if (isBundleResource(matchedResource)) {
+			log.verbose(`${pathname} is a bundle; serving without instrumentation`);
+			next();
+			return;
 		}
 
-		sendInstrumented(res, await instrument(source, pathname), pathname);
+		sendInstrumented(res, await instrument(await matchedResource.getString(), reportedPath), reportedPath);
 	});
-
-	/**
-	 * Handles a request in "unbundle" mode.
-	 *
-	 * Every JS request is inspected: bundles are answered with 404 (independent of the
-	 * <code>?instrument</code> query param) so the runtime falls back to requesting individual modules.
-	 * Non-bundle modules are only instrumented when requested with <code>?instrument</code>; otherwise
-	 * the request falls through to be served by the following middleware. The unminified source is
-	 * preferred: when the minify task is active the runtime file (e.g. <code>Button.js</code>) holds
-	 * minified code and the real source lives in the <code>-dbg</code> variant
-	 * (<code>Button-dbg.js</code>); when minification is disabled the runtime file already is the source.
-	 * The module is instrumented against, and reported as, its runtime path (without the
-	 * <code>-dbg</code> infix) so coverage keys line up with what the client selects and what the
-	 * reporter reads. The client requests both <code>Button.js</code> and, in browser debug mode,
-	 * <code>Button-dbg.js</code> with <code>?instrument</code>; both resolve here to the same
-	 * instrumented source.
-	 *
-	 * @param {object} req Request
-	 * @param {object} res Response
-	 * @param {Function} next Next middleware
-	 * @param {Array<RegExp|string>} excludePatterns Instrumentation exclude patterns
-	 */
-	async function handleUnbundled(req, res, next, excludePatterns) {
-		const pathname = middlewareUtil.getPathname(req);
-		if (!pathname.endsWith(".js")) {
-			next();
-			return;
-		}
-
-		const requestedResource = await builtResources.all.byPath(pathname);
-		if (!requestedResource) {
-			// Let the following middleware handle it (e.g. respond with 404 itself).
-			next();
-			return;
-		}
-
-		const requestedSource = await requestedResource.getString();
-
-		// Do not serve bundles: force the runtime to load individual modules instead. Some bundles
-		// however share a path with a real source file (e.g. sap-ui-core.js, runTest.js): the built
-		// output at that path is the bundle, but the unbuilt resources still hold the actual source.
-		// In that case the source must be served (a 404 would leave the runtime without any code for
-		// that module): instrument it when requested with ?instrument, otherwise serve it verbatim.
-		if (isBundle(requestedSource)) {
-			const sourceResource = await resources.all.byPath(pathname);
-			if (!sourceResource) {
-				log.verbose(`${pathname} is a bundle, responding with 404 to force individual module loading`);
-				res.statusCode = 404;
-				res.end();
-				return;
-			}
-
-			const sourceString = await sourceResource.getString();
-			if (shouldInstrumentResource(req, excludePatterns)) {
-				log.verbose(`${pathname} is a bundle with a matching source resource; instrumenting the source`);
-				sendInstrumented(res, await instrument(sourceString, pathname), pathname);
-			} else {
-				log.verbose(`${pathname} is a bundle with a matching source resource; serving the source`);
-				res.setHeader("Content-Type", "text/javascript");
-				res.end(sourceString);
-			}
-			return;
-		}
-
-		// From here on behave like the default mode: only instrument when the client opts in via
-		// ?instrument and the resource is not excluded.
-		if (!shouldInstrumentResource(req, excludePatterns)) {
-			next();
-			return;
-		}
-
-		log.verbose(`handling ${pathname}...`);
-
-		// Report against the runtime path even when the browser requested the -dbg variant directly.
-		const reportedPath = isDebugPath(pathname) ? fromDebugPath(pathname) : pathname;
-
-		// Prefer the unminified -dbg source; fall back to the requested resource when no -dbg variant
-		// exists (minify task disabled -> the runtime file already is the source).
-		let source = requestedSource;
-		if (!isDebugPath(pathname)) {
-			const dbgResource = await builtResources.all.byPath(toDebugPath(pathname));
-			if (dbgResource) {
-				source = await dbgResource.getString();
-			}
-		}
-
-		sendInstrumented(res, await instrument(source, reportedPath), reportedPath);
-	}
 
 	/**
 	 * Sends instrumented source (with an embedded source map when enabled) as a JS response.
