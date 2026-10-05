@@ -1,6 +1,7 @@
 import libReport from "istanbul-lib-report";
 import reports from "istanbul-reports";
 import istanbulLibCoverage from "istanbul-lib-coverage";
+import {createSourceMapStore} from "istanbul-lib-source-maps";
 import path from "node:path";
 import {toDebugPath, isDebugPath} from "./util.js";
 
@@ -13,9 +14,10 @@ import {toDebugPath, isDebugPath} from "./util.js";
 /**
  * Reports the coverage
  *
- * Coverage is keyed by the runtime path, while the middleware instruments the unminified
- * <code>-dbg</code> source. The report therefore reads the <code>-dbg</code> variant (when present)
- * to render the real source, falling back to the resource at the key itself.
+ * Coverage posted by the client is remapped through any input source maps embedded in the coverage
+ * data (e.g. a TypeScript project's transpiled sources mapping back to the original <code>.ts</code>)
+ * so it is reported against the original source. For files without such a map (plain JS, keyed by the
+ * runtime path) the unminified <code>-dbg</code> variant is read from the build output.
  *
  * @param {object} coverageData
  * @param {*} config
@@ -38,17 +40,37 @@ export default async function(coverageData, config, builtResources, log) {
 	// whole coverageData object (old structure).
 	globalCoverageMap = globalCoverageMap || coverageData;
 
-	const coverageMap =
+	let coverageMap =
 		istanbulLibCoverage.createCoverageMap(globalCoverageMap);
 	const reportConfig = {...config.report};
 
 	// Frontend config for watermarks should take precedence if present.
 	reportConfig.watermarks = {...reportConfig.watermarks, ...watermarks};
 
-	// Get & stash code from the resources
-	// Later this would be needed to create the reports
+	// Remap coverage through any input source maps embedded in the coverage data (e.g. a TypeScript
+	// project's transpiled -dbg source mapping back to the original .ts), so coverage is reported
+	// against the original source. This is a no-op for files without an input source map (plain JS),
+	// which pass through keyed by their runtime path.
+	const sourceMapStore = createSourceMapStore();
+	coverageMap = await sourceMapStore.transformCoverage(coverageMap);
+
+	// Get & stash the source for each (possibly remapped) key. Later this is needed to create the
+	// reports. For a remapped original the source comes from the input source map's embedded content
+	// (via the store); for un-mapped keys (plain JS, keyed by the runtime path) the unminified -dbg
+	// variant is read from the build output.
 	const coverageSources = await Promise.all(
 		Object.keys(coverageMap.data).map(async (key) => {
+			// Source embedded in a consumed input source map (e.g. the original .ts text).
+			try {
+				const mappedSource = sourceMapStore.sourceFinder(key);
+				if (mappedSource !== undefined) {
+					return {key, source: mappedSource};
+				}
+			} catch {
+				// Not a store-backed path (sourceFinder's fs fallback throws for virtual paths);
+				// read it from the build output below.
+			}
+
 			let source = "";
 
 			// Prefer the -dbg variant (the original unminified source) over the minified resource at
