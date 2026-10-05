@@ -7,7 +7,8 @@ import {
 	shouldInstrumentResource,
 	toDebugPath,
 	fromDebugPath,
-	isDebugPath
+	isDebugPath,
+	isBundleResource
 } from "../../../lib/util.js";
 
 // Node.js itself tries to parse sourceMappingURLs in all JavaScript files. This is unwanted and might even lead to
@@ -402,6 +403,36 @@ test("shouldInstrumentResource: runtime-name excludes still apply to -dbg reques
 test("shouldInstrumentResource: -dbg request without an exclude is instrumented", (t) => {
 	const request = getMockedRequest("/resources/lib1/Control1-dbg.js", {instrument: "true"});
 	t.true(shouldInstrumentResource(request, []));
+});
+
+test("isBundleResource: true when the ui5:IsBundle tag is set", (t) => {
+	const resource = {
+		getPath: () => "/resources/x/library-preload.js",
+		getProject: () => ({
+			getResourceTagCollection: () => ({getTag: () => true})
+		})
+	};
+	t.true(isBundleResource(resource));
+});
+
+test("isBundleResource: false when the resource has no project", (t) => {
+	t.false(isBundleResource({getProject: () => undefined}));
+});
+
+test("isBundleResource: false and warns when the tag read throws", (t) => {
+	const warnings = [];
+	const log = {warn: (msg) => warnings.push(msg)};
+	const resource = {
+		getPath: () => "/resources/x/Thing.js",
+		getProject: () => ({
+			getResourceTagCollection: () => {
+				throw new Error("boom");
+			}
+		})
+	};
+	t.false(isBundleResource(resource, log));
+	t.is(warnings.length, 1, "the failure is surfaced");
+	t.true(warnings[0].includes("/resources/x/Thing.js"), "the warning names the resource");
 });
 
 

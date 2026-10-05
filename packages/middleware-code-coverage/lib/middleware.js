@@ -123,59 +123,69 @@ export default async function({log, middlewareUtil, options={}, builtResources})
 	let excludePatterns;
 
 	router.use(async (req, res, next) => {
-		// Lazy initialize exclude patterns
-		if (excludePatterns === undefined) {
-			// Custom patterns take precedence over .library defined patterns (also when set to null)
-			if (generalConfig.excludePatterns !== undefined) {
-				excludePatterns = generalConfig.excludePatterns;
-			} else {
-				// Read patterns from .library files, this should only be done if needed and only once
-				excludePatterns = await getLibraryCoverageExcludePatterns(builtResources.all);
+		try {
+			// Lazy initialize exclude patterns
+			if (excludePatterns === undefined) {
+				// Custom patterns take precedence over .library defined patterns (also when set to null)
+				if (generalConfig.excludePatterns !== undefined) {
+					excludePatterns = generalConfig.excludePatterns;
+				} else {
+					// Read patterns from .library files, this should only be done if needed and only once
+					excludePatterns = await getLibraryCoverageExcludePatterns(builtResources.all);
+				}
 			}
+
+			// Only instrument JS resources the client opts into via ?instrument (and which are not excluded).
+			if (!shouldInstrumentResource(req, excludePatterns)) {
+				next();
+				return;
+			}
+
+			const pathname = middlewareUtil.getPathname(req);
+			log.verbose(`handling ${pathname}...`);
+
+			// Report against the runtime path even when the browser requested the -dbg variant directly
+			// (as it does when the page is loaded with sap-ui-debug), so coverage keys line up with what
+			// the client selects and what the reporter reads.
+			const reportedPath = isDebugPath(pathname) ? fromDebugPath(pathname) : pathname;
+
+			// Prefer the unminified -dbg source for faithful per-line coverage; fall back to the requested
+			// resource when no -dbg variant exists (minify task disabled, or the -dbg variant was requested
+			// directly).
+			let matchedResource;
+			if (!isDebugPath(pathname)) {
+				matchedResource = await builtResources.all.byPath(toDebugPath(pathname));
+			}
+			if (!matchedResource) {
+				matchedResource = await builtResources.all.byPath(pathname);
+			}
+
+			if (!matchedResource) {
+				log.warn(`${pathname} not found`);
+				next();
+				return;
+			}
+
+			// Never instrument bundles (e.g. *-preload.js): instrumenting the concatenated, minified
+			// bundle would corrupt coverage. Bundles are served verbatim by the following middleware;
+			// coverage comes from the individual modules the client requests instead (loaded via
+			// sap-ui-debug). Detected via the resource's `ui5:IsBundle` tag.
+			if (isBundleResource(matchedResource, log)) {
+				log.verbose(`${pathname} is a bundle; serving without instrumentation`);
+				next();
+				return;
+			}
+
+			sendInstrumented(res, await instrument(await matchedResource.getString(), reportedPath), reportedPath);
+		} catch (err) {
+			// A reader rejection or an unparseable source (istanbul throwing) must not stall the dev
+			// server. Log the cause and defer to the error-handling stack.
+			log.error(`Failed to instrument ${req.url}: ${err.message}`);
+			if (err.stack) {
+				log.verbose(err.stack);
+			}
+			next(err);
 		}
-
-		// Only instrument JS resources the client opts into via ?instrument (and which are not excluded).
-		if (!shouldInstrumentResource(req, excludePatterns)) {
-			next();
-			return;
-		}
-
-		const pathname = middlewareUtil.getPathname(req);
-		log.verbose(`handling ${pathname}...`);
-
-		// Report against the runtime path even when the browser requested the -dbg variant directly
-		// (as it does when the page is loaded with sap-ui-debug), so coverage keys line up with what
-		// the client selects and what the reporter reads.
-		const reportedPath = isDebugPath(pathname) ? fromDebugPath(pathname) : pathname;
-
-		// Prefer the unminified -dbg source for faithful per-line coverage; fall back to the requested
-		// resource when no -dbg variant exists (minify task disabled, or the -dbg variant was requested
-		// directly).
-		let matchedResource;
-		if (!isDebugPath(pathname)) {
-			matchedResource = await builtResources.all.byPath(toDebugPath(pathname));
-		}
-		if (!matchedResource) {
-			matchedResource = await builtResources.all.byPath(pathname);
-		}
-
-		if (!matchedResource) {
-			log.warn(`${pathname} not found`);
-			next();
-			return;
-		}
-
-		// Never instrument bundles (e.g. *-preload.js): instrumenting the concatenated, minified
-		// bundle would corrupt coverage. Bundles are served verbatim by the following middleware;
-		// coverage comes from the individual modules the client requests instead (loaded via
-		// sap-ui-debug). Detected via the resource's `ui5:IsBundle` tag.
-		if (isBundleResource(matchedResource)) {
-			log.verbose(`${pathname} is a bundle; serving without instrumentation`);
-			next();
-			return;
-		}
-
-		sendInstrumented(res, await instrument(await matchedResource.getString(), reportedPath), reportedPath);
 	});
 
 	/**

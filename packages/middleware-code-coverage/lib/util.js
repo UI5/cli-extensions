@@ -138,15 +138,20 @@ const TAG_IS_BUNDLE = "ui5:IsBundle";
  *
  * @public
  * @param {module:@ui5/fs.Resource} resource Built resource
+ * @param {@ui5/logger/Logger} [log] Logger used to surface an unexpected tag-read failure
  * @returns {boolean} True if the resource is tagged as a bundle
  */
-export function isBundleResource(resource) {
+export function isBundleResource(resource, log) {
 	try {
 		const project = resource.getProject?.();
 		const tagCollection = project?.getResourceTagCollection?.(resource, TAG_IS_BUNDLE);
 		return !!tagCollection?.getTag(resource, TAG_IS_BUNDLE);
-	} catch {
-		// No project assigned or no collection accepts the tag: treat as a non-bundle.
+	} catch (err) {
+		// Reading the tag failed unexpectedly (e.g. @ui5/project API drift). Default to "not a
+		// bundle" so individual modules still get instrumented, but surface it: a bundle wrongly
+		// instrumented would corrupt coverage, and this log is the only trace of why.
+		log?.warn(`Could not determine bundle status for ${resource.getPath?.()}; ` +
+			`treating as non-bundle (${err.message})`);
 		return false;
 	}
 }
