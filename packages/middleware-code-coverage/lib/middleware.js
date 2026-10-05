@@ -8,7 +8,8 @@ import {
 	toDebugPath,
 	fromDebugPath,
 	isDebugPath,
-	isBundleResource
+	isBundleResource,
+	loadInputSourceMap
 } from "./util.js";
 import {createInstrumenter} from "istanbul-lib-instrument";
 import reportCoverage from "./coverage-reporter.js";
@@ -184,25 +185,14 @@ export default async function({log, middlewareUtil, options={}, builtResources})
 
 			// Feed istanbul the instrumented source's own source map when present (e.g. a TypeScript
 			// project's -dbg source mapping back to the original .ts), so coverage is attributed to the
-			// original source. Absent a sibling map (plain JS), this is a no-op.
-			// Passed as a plain source-map object: UI5 per-module -dbg maps are flat (not indexed), and
+			// original source. Resolved from the source's sourceMappingURL (inline data-URI or a sibling
+			// file); absent or unparseable -> instrumented without a map (coverage keyed to the runtime
+			// path). Passed as a plain object: UI5 per-module -dbg maps are flat (not indexed), and
 			// istanbul expects a plain object — a non-plain instance would be spread-mangled internally.
-			// TODO: resolve the map via the source's sourceMappingURL rather than assuming a `.map` sibling.
-			let inputSourceMap;
-			const sourceMapResource = await builtResources.all.byPath(`${sourcePath}.map`);
-			if (sourceMapResource) {
-				try {
-					inputSourceMap = JSON.parse(await sourceMapResource.getString());
-				} catch (err) {
-					// A malformed/partial map must not fail the request; instrument without it (coverage
-					// then stays keyed to the runtime path instead of the original source).
-					log.verbose(`Ignoring unparseable source map ${sourcePath}.map: ${err.message}`);
-				}
-			}
+			const source = await matchedResource.getString();
+			const inputSourceMap = await loadInputSourceMap(source, sourcePath, builtResources.all, log);
 
-			sendInstrumented(
-				res, await instrument(await matchedResource.getString(), reportedPath, inputSourceMap), reportedPath
-			);
+			sendInstrumented(res, await instrument(source, reportedPath, inputSourceMap), reportedPath);
 		} catch (err) {
 			// A reader rejection or an unparseable source (istanbul throwing) must not stall the dev
 			// server. Log the cause and defer to the error-handling stack.

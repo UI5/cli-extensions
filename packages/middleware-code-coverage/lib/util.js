@@ -1,6 +1,7 @@
 import xml2js from "xml2js";
 import {Buffer} from "node:buffer";
 import {readFile} from "node:fs/promises";
+import path from "node:path";
 
 /**
  * Returns the configuration for instrumenting the files
@@ -153,6 +154,54 @@ export function isBundleResource(resource, log) {
 		log?.warn(`Could not determine bundle status for ${resource.getPath?.()}; ` +
 			`treating as non-bundle (${err.message})`);
 		return false;
+	}
+}
+
+// Matches `//# sourceMappingURL=` (and the legacy `//@`) comments, capturing the URL.
+const sourceMappingURLRegex = /\/\/[#@]\s*sourceMappingURL=(.+?)\s*$/gm;
+
+/**
+ * Loads the input source map referenced by a resource's <code>sourceMappingURL</code> comment, so
+ * coverage can be attributed to the original source (e.g. a TypeScript project's <code>-dbg</code>
+ * source mapping back to the <code>.ts</code>).
+ *
+ * Handles an inline data-URI map (base64 or URI-encoded) and an external map file (resolved relative
+ * to the resource's own path and read from the given reader). Returns <code>undefined</code> when
+ * there is no map, or it cannot be read or parsed — the caller then instruments without an input map
+ * (coverage stays keyed to the runtime path). The last <code>sourceMappingURL</code> wins, per spec.
+ *
+ * @public
+ * @param {string} sourceCode The resource content to scan for a <code>sourceMappingURL</code>
+ * @param {string} sourcePathname The resource's request path (used to resolve a relative map URL)
+ * @param {module:@ui5/fs.AbstractReader} reader Reader to resolve an external map file
+ * @param {@ui5/logger/Logger} [log] Logger for surfacing an unreadable/unparseable map
+ * @returns {Promise<object|undefined>} The parsed source map, or <code>undefined</code>
+ */
+export async function loadInputSourceMap(sourceCode, sourcePathname, reader, log) {
+	const matches = [...sourceCode.matchAll(sourceMappingURLRegex)];
+	if (matches.length === 0) {
+		return undefined;
+	}
+	const url = matches[matches.length - 1][1].trim();
+	try {
+		const base64 = url.match(/^data:application\/json[^,]*;base64,(.*)$/);
+		if (base64) {
+			return JSON.parse(Buffer.from(base64[1], "base64").toString("utf8"));
+		}
+		const dataURI = url.match(/^data:application\/json[^,]*,(.*)$/);
+		if (dataURI) {
+			return JSON.parse(decodeURIComponent(dataURI[1]));
+		}
+		// External map file: resolve relative to the resource's own directory and read it.
+		const mapPath = path.posix.resolve(path.posix.dirname(sourcePathname), url);
+		const mapResource = await reader.byPath(mapPath);
+		if (!mapResource) {
+			return undefined;
+		}
+		return JSON.parse(await mapResource.getString());
+	} catch (err) {
+		log?.verbose(`Ignoring unreadable source map for ${sourcePathname}: ${err.message}`);
+		return undefined;
 	}
 }
 

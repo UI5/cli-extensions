@@ -357,8 +357,8 @@ test("Instrument resources request: a malformed source map is ignored, not fatal
 		error: sinon.stub()
 	};
 	const {instrumenterMiddleware} = t.context;
-	// Build output where the sibling `.map` is corrupt. The request must still be instrumented
-	// (keyed to the runtime path) rather than failing with a 500 / next(err).
+	// Build output where the sibling `.map` referenced by the source is corrupt. The request must
+	// still be instrumented (keyed to the runtime path) rather than failing with a 500 / next(err).
 	const builtResources = {
 		all: {
 			byGlob() {
@@ -377,7 +377,8 @@ test("Instrument resources request: a malformed source map is ignored, not fatal
 				}
 				return {
 					async getString() {
-						return sampleJS;
+						// Source points at the (corrupt) sibling map via a sourceMappingURL comment.
+						return `${sampleJS}\n${SOURCE_MAPPING_URL}=Control1-dbg.js.map`;
 					}
 				};
 			}
