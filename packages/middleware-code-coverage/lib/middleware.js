@@ -188,10 +188,17 @@ export default async function({log, middlewareUtil, options={}, builtResources})
 			// Passed as a plain source-map object: UI5 per-module -dbg maps are flat (not indexed), and
 			// istanbul expects a plain object — a non-plain instance would be spread-mangled internally.
 			// TODO: resolve the map via the source's sourceMappingURL rather than assuming a `.map` sibling.
+			let inputSourceMap;
 			const sourceMapResource = await builtResources.all.byPath(`${sourcePath}.map`);
-			const inputSourceMap = sourceMapResource ?
-				JSON.parse(await sourceMapResource.getString()) :
-				undefined;
+			if (sourceMapResource) {
+				try {
+					inputSourceMap = JSON.parse(await sourceMapResource.getString());
+				} catch (err) {
+					// A malformed/partial map must not fail the request; instrument without it (coverage
+					// then stays keyed to the runtime path instead of the original source).
+					log.verbose(`Ignoring unparseable source map ${sourcePath}.map: ${err.message}`);
+				}
+			}
 
 			sendInstrumented(
 				res, await instrument(await matchedResource.getString(), reportedPath, inputSourceMap), reportedPath

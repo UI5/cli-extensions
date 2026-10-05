@@ -54,23 +54,14 @@ export default async function(coverageData, config, builtResources, log) {
 	const sourceMapStore = createSourceMapStore();
 	coverageMap = await sourceMapStore.transformCoverage(coverageMap);
 
-	// Get & stash the source for each (possibly remapped) key. Later this is needed to create the
-	// reports. For a remapped original the source comes from the input source map's embedded content
-	// (via the store); for un-mapped keys (plain JS, keyed by the runtime path) the unminified -dbg
-	// variant is read from the build output.
+	// Get & stash the source for each (possibly remapped) key. For a remapped original (e.g. a .ts)
+	// the transpiled build output contains the original source next to its -dbg variant; for un-mapped
+	// keys (plain JS, keyed by the runtime path) the unminified -dbg variant is read. Sources are
+	// resolved only against the sandboxed `builtResources` reader — never the raw filesystem — because
+	// the keys (and the source maps they were remapped through) originate from client-posted coverage
+	// data; reading arbitrary paths off disk from that input would be an arbitrary-file-read.
 	const coverageSources = await Promise.all(
 		Object.keys(coverageMap.data).map(async (key) => {
-			// Source embedded in a consumed input source map (e.g. the original .ts text).
-			try {
-				const mappedSource = sourceMapStore.sourceFinder(key);
-				if (mappedSource !== undefined) {
-					return {key, source: mappedSource};
-				}
-			} catch {
-				// Not a store-backed path (sourceFinder's fs fallback throws for virtual paths);
-				// read it from the build output below.
-			}
-
 			let source = "";
 
 			// Prefer the -dbg variant (the original unminified source) over the minified resource at
