@@ -17,7 +17,6 @@ import Router from "router";
 import path from "node:path";
 import serveStatic from "serve-static";
 import {promisify} from "node:util";
-import {AnyMap} from "@jridgewell/trace-mapping";
 
 /**
  * Custom middleware to instrument JS files with Istanbul.
@@ -186,10 +185,12 @@ export default async function({log, middlewareUtil, options={}, builtResources})
 			// Feed istanbul the instrumented source's own source map when present (e.g. a TypeScript
 			// project's -dbg source mapping back to the original .ts), so coverage is attributed to the
 			// original source. Absent a sibling map (plain JS), this is a no-op.
+			// Passed as a plain source-map object: UI5 per-module -dbg maps are flat (not indexed), and
+			// istanbul expects a plain object — a non-plain instance would be spread-mangled internally.
 			// TODO: resolve the map via the source's sourceMappingURL rather than assuming a `.map` sibling.
 			const sourceMapResource = await builtResources.all.byPath(`${sourcePath}.map`);
 			const inputSourceMap = sourceMapResource ?
-				new AnyMap(JSON.parse(await sourceMapResource.getString())) :
+				JSON.parse(await sourceMapResource.getString()) :
 				undefined;
 
 			sendInstrumented(
