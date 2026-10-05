@@ -80,12 +80,17 @@ const debugFileRegex = /((?:\.view|\.fragment|\.controller|\.designtime|\.suppor
 
 /**
  * Returns the debug-variant path for a runtime resource path, as produced by the minifier task.
+ * Idempotent: a path that already is a debug variant is returned unchanged (so callers do not have
+ * to guard against producing a <code>-dbg-dbg</code> path).
  *
  * @public
  * @param {string} pathname Runtime resource path (e.g. <code>/resources/ns/Button.js</code>)
  * @returns {string} Debug-variant path (e.g. <code>/resources/ns/Button-dbg.js</code>)
  */
 export function toDebugPath(pathname) {
+	if (isDebugPath(pathname)) {
+		return pathname;
+	}
 	return pathname.replace(debugFileRegex, "-dbg$1");
 }
 
