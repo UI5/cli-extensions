@@ -284,11 +284,18 @@ test("Report Coverage: remaps through an embedded input source map to the origin
 		}
 	};
 
-	// builtResources must NOT be consulted for the remapped .ts (its source comes from the map).
+	// Source for the remapped .ts must be read from the sandboxed build output — never the raw
+	// filesystem — since keys originate from client-posted coverage data.
+	const requested = [];
 	const builtResources = {
 		all: {
-			byPath() {
-				throw new Error("builtResources should not be read for a source-map-backed .ts");
+			byPath(resourcePath) {
+				requested.push(resourcePath);
+				return {
+					async getString() {
+						return "export const greet = 1;\n";
+					}
+				};
 			}
 		}
 	};
@@ -298,4 +305,6 @@ test("Report Coverage: remaps through an embedded input source map to the origin
 
 	t.deepEqual(report.coverageMap, ["/resources/covered/lib/Thing.ts"],
 		"coverage is remapped from the runtime .js path to the original .ts source");
+	t.true(requested.includes("/resources/covered/lib/Thing.ts"),
+		"the remapped .ts source is read from the sandboxed builtResources, not the filesystem");
 });

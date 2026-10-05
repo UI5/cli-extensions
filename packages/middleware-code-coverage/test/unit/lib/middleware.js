@@ -350,6 +350,65 @@ test("Instrument resources request without source map", async (t) => {
 	});
 });
 
+test("Instrument resources request: a malformed source map is ignored, not fatal", async (t) => {
+	const log = {
+		verbose: sinon.stub(),
+		warn: sinon.stub(),
+		error: sinon.stub()
+	};
+	const {instrumenterMiddleware} = t.context;
+	// Build output where the sibling `.map` is corrupt. The request must still be instrumented
+	// (keyed to the runtime path) rather than failing with a 500 / next(err).
+	const builtResources = {
+		all: {
+			byGlob() {
+				return [];
+			},
+			async byPath(filePath) {
+				if (filePath.endsWith(".map")) {
+					return {
+						async getString() {
+							return "{ this is not valid json";
+						}
+					};
+				}
+				if (!filePath.endsWith(".js")) {
+					return null;
+				}
+				return {
+					async getString() {
+						return sampleJS;
+					}
+				};
+			}
+		}
+	};
+	const middleware = await instrumenterMiddleware({log, middlewareUtil, builtResources});
+
+	t.plan(2);
+
+	await new Promise((resolve) => {
+		const res = {
+			end(resource) {
+				t.true(resource.includes("path=\"/resources/lib1/Control1.js\""),
+					"instrumented despite the unparseable source map");
+				resolve();
+			},
+			setHeader() {}
+		};
+		const next = (err) => {
+			t.fail("should not be called: " + (err && err.message));
+			resolve();
+		};
+		middleware({
+			method: "GET",
+			url: "/resources/lib1/Control1.js?instrument=true"
+		}, res, next);
+	});
+
+	t.is(log.error.callCount, 0, "the request did not fail");
+});
+
 test("Instrument resources request for non instrumented resource", async (t) => {
 	const shouldInstrumentResourceStub = sinon.stub().returns(false);
 	const log = {};
