@@ -385,4 +385,23 @@ test("fromDebugPath: returns a non-debug path unchanged", (t) => {
 	t.is(fromDebugPath("/resources/ns/Button.js"), "/resources/ns/Button.js");
 });
 
+test("shouldInstrumentResource: runtime-name excludes still apply to -dbg requests (string)", (t) => {
+	// Coverage runs request the -dbg variant; a filename-pinned exclude written in runtime terms
+	// must still match it.
+	const request = getMockedRequest("/resources/lib1/Control1-dbg.js", {instrument: "true"});
+	t.false(shouldInstrumentResource(request, ["Control1.js"]), "excluded despite -dbg infix");
+	t.true(shouldInstrumentResource(request, ["Other.js"]), "non-matching exclude still instruments");
+});
+
+test("shouldInstrumentResource: runtime-name excludes still apply to -dbg requests (regexp)", (t) => {
+	const request = getMockedRequest("/resources/lib1/Control1-dbg.js", {instrument: "true"});
+	t.false(shouldInstrumentResource(request, [/Control1\.js$/]), "excluded despite -dbg infix");
+	t.true(shouldInstrumentResource(request, [/Other\.js$/]), "non-matching exclude still instruments");
+});
+
+test("shouldInstrumentResource: -dbg request without an exclude is instrumented", (t) => {
+	const request = getMockedRequest("/resources/lib1/Control1-dbg.js", {instrument: "true"});
+	t.true(shouldInstrumentResource(request, []));
+});
+
 
