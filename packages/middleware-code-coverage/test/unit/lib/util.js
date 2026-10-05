@@ -8,7 +8,8 @@ import {
 	toDebugPath,
 	fromDebugPath,
 	isDebugPath,
-	isBundleResource
+	isBundleResource,
+	loadInputSourceMap
 } from "../../../lib/util.js";
 
 // Node.js itself tries to parse sourceMappingURLs in all JavaScript files. This is unwanted and might even lead to
@@ -433,6 +434,56 @@ test("isBundleResource: false and warns when the tag read throws", (t) => {
 	t.false(isBundleResource(resource, log));
 	t.is(warnings.length, 1, "the failure is surfaced");
 	t.true(warnings[0].includes("/resources/x/Thing.js"), "the warning names the resource");
+});
+
+test("loadInputSourceMap: no sourceMappingURL returns undefined", async (t) => {
+	const reader = {byPath() {
+		throw new Error("reader should not be consulted when there is no sourceMappingURL");
+	}};
+	t.is(await loadInputSourceMap("var x = 1;\n", "/resources/ns/Thing-dbg.js", reader), undefined);
+});
+
+test("loadInputSourceMap: external map is resolved relative to the source directory", async (t) => {
+	const map = {version: 3, sources: ["Thing.ts"], mappings: "AAAA"};
+	const requested = [];
+	const reader = {
+		async byPath(resourcePath) {
+			requested.push(resourcePath);
+			return {async getString() {
+				return JSON.stringify(map);
+			}};
+		}
+	};
+	const code = `var x = 1;\n${SOURCE_MAPPING_URL}=Thing-dbg.js.map`;
+	const result = await loadInputSourceMap(code, "/resources/ns/Thing-dbg.js", reader);
+
+	t.deepEqual(result, map);
+	t.deepEqual(requested, ["/resources/ns/Thing-dbg.js.map"],
+		"the map URL is resolved against the source's directory");
+});
+
+test("loadInputSourceMap: inline base64 data-URI map is decoded without a reader", async (t) => {
+	const map = {version: 3, sources: ["Thing.ts"], mappings: "AAAA"};
+	const base64 = Buffer.from(JSON.stringify(map), "utf8").toString("base64");
+	const code = `var x = 1;\n${SOURCE_MAPPING_URL}=data:application/json;charset=utf-8;base64,${base64}`;
+	const reader = {byPath() {
+		throw new Error("reader should not be consulted for an inline map");
+	}};
+	t.deepEqual(await loadInputSourceMap(code, "/resources/ns/Thing-dbg.js", reader), map);
+});
+
+test("loadInputSourceMap: an unparseable map returns undefined and is not fatal", async (t) => {
+	const reader = {async byPath() {
+		return {async getString() {
+			return "{ not valid json";
+		}};
+	}};
+	const code = `var x = 1;\n${SOURCE_MAPPING_URL}=Thing-dbg.js.map`;
+	const warnings = [];
+	const log = {verbose: (msg) => warnings.push(msg)};
+
+	t.is(await loadInputSourceMap(code, "/resources/ns/Thing-dbg.js", reader, log), undefined);
+	t.is(warnings.length, 1, "the failure is surfaced via log.verbose");
 });
 
 
