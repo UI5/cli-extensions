@@ -60,14 +60,19 @@ export function shouldInstrumentResource(request, excludePatterns) {
 		return false;
 	}
 	const {pathname, searchParams} = new URL(request.url, "http://localhost");
+	// Match exclude patterns against the runtime path: coverage runs request the unminified `-dbg`
+	// variant, but patterns (and the coverage report keys) are expressed in runtime terms, so a
+	// `-dbg` request must be normalized first — otherwise a filename-pinned exclude (e.g.
+	// "Control1.js" or /Control1\.js$/) would silently fail to match "Control1-dbg.js".
+	const runtimePath = fromDebugPath(pathname);
 	return (
-		pathname.endsWith(".js") &&
+		runtimePath.endsWith(".js") &&
 		!isFalsyValue(searchParams.get("instrument")) &&
 		!(excludePatterns || []).some((pattern) => {
 			if (pattern instanceof RegExp) {
-				return pattern.test(pathname);
+				return pattern.test(runtimePath);
 			} else {
-				return pathname.includes(pattern);
+				return runtimePath.includes(pattern);
 			}
 		})
 	);
