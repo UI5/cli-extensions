@@ -4,7 +4,10 @@ import {
 	getLatestSourceMap,
 	getLibraryCoverageExcludePatterns,
 	readJsonFile,
-	shouldInstrumentResource
+	shouldInstrumentResource,
+	toDebugPath,
+	fromDebugPath,
+	isDebugPath
 } from "../../../lib/util.js";
 
 // Node.js itself tries to parse sourceMappingURLs in all JavaScript files. This is unwanted and might even lead to
@@ -354,6 +357,32 @@ test("shouldInstrumentResource: Resource flagged as instrumented, with no matchi
 	];
 	const toBeInstrumented = shouldInstrumentResource(request, excludePatterns);
 	t.true(toBeInstrumented);
+});
+
+test("toDebugPath / fromDebugPath / isDebugPath: round-trip and file types", (t) => {
+	const cases = [
+		["/resources/ns/Button.js", "/resources/ns/Button-dbg.js"],
+		["/resources/ns/App.controller.js", "/resources/ns/App-dbg.controller.js"],
+		["/resources/ns/Main.view.js", "/resources/ns/Main-dbg.view.js"],
+		["/resources/ns/My.fragment.js", "/resources/ns/My-dbg.fragment.js"],
+	];
+	for (const [runtime, dbg] of cases) {
+		t.is(toDebugPath(runtime), dbg, `toDebugPath(${runtime})`);
+		t.is(fromDebugPath(dbg), runtime, `fromDebugPath(${dbg})`);
+		t.false(isDebugPath(runtime), `isDebugPath(${runtime})`);
+		t.true(isDebugPath(dbg), `isDebugPath(${dbg})`);
+	}
+});
+
+test("toDebugPath: idempotent for paths that already are debug variants", (t) => {
+	// Guards against producing a `-dbg-dbg` path; callers may pass an already-debug path.
+	t.is(toDebugPath("/resources/ns/Button-dbg.js"), "/resources/ns/Button-dbg.js");
+	t.is(toDebugPath("/resources/ns/App-dbg.controller.js"), "/resources/ns/App-dbg.controller.js");
+	t.is(toDebugPath(toDebugPath("/resources/ns/Button.js")), "/resources/ns/Button-dbg.js");
+});
+
+test("fromDebugPath: returns a non-debug path unchanged", (t) => {
+	t.is(fromDebugPath("/resources/ns/Button.js"), "/resources/ns/Button.js");
 });
 
 
