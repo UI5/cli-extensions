@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<library xmlns="http://www.sap.com/sap.ui.library.xsd">
+	<name>covered.dep</name>
+	<vendor>SAP SE</vendor>
+	<copyright>${copyright}</copyright>
+	<version>${version}</version>
+	<documentation>Coverage dependency probe library</documentation>
+	<appData>
+		<jscoverage xmlns="http://www.sap.com/ui5/buildext/jscoverage">
+			<exclude name="covered.dep.Helper" />
+		</jscoverage>
+	</appData>
+</library>

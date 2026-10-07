@@ -1,0 +1,10 @@
+{
+  "name": "covered.appts",
+  "version": "0.0.1",
+  "private": true,
+  "devDependencies": {
+    "@ui5/middleware-code-coverage": "../../../../",
+    "typescript": "^5.4.0",
+    "ui5-tooling-transpile": "^3.6.1"
+  }
+}
