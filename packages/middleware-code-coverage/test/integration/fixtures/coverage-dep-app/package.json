@@ -1,0 +1,11 @@
+{
+  "name": "covered.app",
+  "version": "0.0.1",
+  "private": true,
+  "dependencies": {
+    "covered.dep": "../coverage-dep-lib"
+  },
+  "devDependencies": {
+    "@ui5/middleware-code-coverage": "../../../../"
+  }
+}
