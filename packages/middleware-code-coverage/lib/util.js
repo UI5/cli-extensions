@@ -157,6 +157,25 @@ export function isBundleResource(resource, log) {
 	}
 }
 
+// UI5 bundles begin with a `//@ui5-bundle` marker (emitted by the bundler tasks, recognized by the
+// ui5loader). Matched at the very start of the file.
+const bundleContentMarker = /^\s*\/\/@ui5-bundle/;
+
+/**
+ * Whether source code is a UI5 bundle, detected by its leading <code>//@ui5-bundle</code> marker.
+ *
+ * Content-based fallback to {@link module:@ui5/middleware-code-coverage/util.isBundleResource}: the
+ * <code>ui5:IsBundle</code> tag is absent when the <code>minify</code> task is skipped, yet such a
+ * bundle must still never be instrumented (its concatenated, indexed source map would crash istanbul).
+ *
+ * @public
+ * @param {string} source Resource source code
+ * @returns {boolean} True if the source begins with the UI5 bundle marker
+ */
+export function isBundleSource(source) {
+	return typeof source === "string" && bundleContentMarker.test(source);
+}
+
 // Matches `//# sourceMappingURL=` (and the legacy `//@`) comments, capturing the URL.
 const sourceMappingURLRegex = /\/\/[#@]\s*sourceMappingURL=(.+?)\s*$/gm;
 
