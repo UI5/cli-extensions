@@ -9,6 +9,7 @@ import {
 	fromDebugPath,
 	isDebugPath,
 	isBundleResource,
+	isBundleSource,
 	loadInputSourceMap
 } from "./util.js";
 import {createInstrumenter} from "istanbul-lib-instrument";
@@ -173,11 +174,14 @@ export default async function({log, middlewareUtil, options={}, builtResources})
 				return;
 			}
 
-			// Never instrument bundles (e.g. *-preload.js): instrumenting the concatenated, minified
-			// bundle would corrupt coverage. Bundles are served verbatim by the following middleware;
-			// coverage comes from the individual modules the client requests instead (loaded via
-			// sap-ui-debug). Detected via the resource's `ui5:IsBundle` tag.
-			if (isBundleResource(matchedResource, log)) {
+			// Never instrument bundles (e.g. *-preload.js): instrumenting the concatenated bundle
+			// would corrupt coverage (and its indexed source map would crash istanbul). Bundles are
+			// served verbatim by the following middleware; coverage comes from the individual modules
+			// the client requests instead (loaded via sap-ui-debug). Detected via the resource's
+			// `ui5:IsBundle` tag, falling back to the `//@ui5-bundle` content marker — the tag is
+			// absent when the minify task is skipped, but the marker is always present.
+			const source = await matchedResource.getString();
+			if (isBundleResource(matchedResource, log) || isBundleSource(source)) {
 				log.verbose(`${pathname} is a bundle; serving without instrumentation`);
 				next();
 				return;
@@ -189,7 +193,6 @@ export default async function({log, middlewareUtil, options={}, builtResources})
 			// file); absent or unparseable -> instrumented without a map (coverage keyed to the runtime
 			// path). Passed as a plain object: UI5 per-module -dbg maps are flat (not indexed), and
 			// istanbul expects a plain object — a non-plain instance would be spread-mangled internally.
-			const source = await matchedResource.getString();
 			const inputSourceMap = await loadInputSourceMap(source, sourcePath, builtResources.all, log);
 
 			sendInstrumented(res, await instrument(source, reportedPath, inputSourceMap), reportedPath);

@@ -9,6 +9,7 @@ import {
 	fromDebugPath,
 	isDebugPath,
 	isBundleResource,
+	isBundleSource,
 	loadInputSourceMap
 } from "../../../lib/util.js";
 
@@ -434,6 +435,17 @@ test("isBundleResource: false and warns when the tag read throws", (t) => {
 	t.false(isBundleResource(resource, log));
 	t.is(warnings.length, 1, "the failure is surfaced");
 	t.true(warnings[0].includes("/resources/x/Thing.js"), "the warning names the resource");
+});
+
+test("isBundleSource: true for the leading //@ui5-bundle marker", (t) => {
+	t.true(isBundleSource("//@ui5-bundle covered/lib/library-preload.js\nsap.ui.predefine(\"x\",[]);"));
+	t.true(isBundleSource("\n\t//@ui5-bundle x"), "tolerates leading whitespace");
+});
+
+test("isBundleSource: false for ordinary module source", (t) => {
+	t.false(isBundleSource("sap.ui.define([], function () {});"));
+	t.false(isBundleSource("// a comment\n//@ui5-bundle later"), "the marker must be at the start");
+	t.false(isBundleSource(undefined), "non-string input is not a bundle");
 });
 
 test("loadInputSourceMap: no sourceMappingURL returns undefined", async (t) => {
