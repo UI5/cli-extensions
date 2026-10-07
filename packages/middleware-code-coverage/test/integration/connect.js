@@ -23,7 +23,10 @@ formatMessage(message) {
 }
 }));`;
 
-const resources = {
+// The middleware reads the build output through the `builtResources` reader split introduced for
+// Specification Version 5.0 (CPOUI5FOUNDATION-1306). Mocked here so the HTTP contract can be
+// exercised in-process without a real v5 build (that end-to-end path lives in v5-bundle.js).
+const builtResources = {
 	all: {
 		byGlob() {
 			return [];
@@ -51,7 +54,7 @@ const log = {
 };
 
 async function createApp(options = {}) {
-	const mw = await middleware({log, middlewareUtil, options, resources});
+	const mw = await middleware({log, middlewareUtil, options, builtResources});
 	const app = connect();
 	app.use(mw);
 	return request(app);
@@ -150,4 +153,21 @@ test("Non-instrumented resource falls through to 404", async (t) => {
 		.expect(404);
 
 	t.pass();
+});
+
+// Case 7: A report type that was not generated has no serve-static route, so the request falls
+// through to a 404 (default reporter is html only). Ported from the retired boot.js.
+test("Requesting a non-generated report type returns 404", async (t) => {
+	const reportApp = await createApp();
+	await reportApp
+		.post("/.ui5/coverage/report")
+		.set("Content-Type", "application/json")
+		.send(coverageMap)
+		.expect(200);
+
+	const res = await reportApp
+		.get("/.ui5/coverage/report/cobertura")
+		.expect(404);
+
+	t.false(res.text.includes("Code coverage report"), "a coverage report page is not returned");
 });
