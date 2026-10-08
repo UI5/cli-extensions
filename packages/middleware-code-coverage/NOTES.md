@@ -2,14 +2,14 @@
 
 Single reference for how `@ui5/middleware-code-coverage` produces faithful per-file coverage under
 UI5 CLI **v5**, where the client loads code as **bundles**: the candidate approaches and their
-trade-offs, the TypeScript solution, cross-cutting concerns, the recommendation, and open follow-ups.
+trade-offs, the TypeScript solution, and open follow-ups.
 
 
 ## Status at a glance
 
 Approaches **A** (`instrument`) and **B** (`unbundle`) were prototyped behind a `bundleHandling`
 config option and validated on v5; that code now lives in the branch history. Approach **C**
-(`sap-ui-debug`, runtime-driven un-bundling) is the approach currently implemented. The
+(runtime-driven un-bundling) is the approach currently implemented. The
 **pre-build task** was discussed but not prototyped. The sections below evaluate all four on equal
 terms.
 
@@ -59,15 +59,18 @@ path. Engagement is gated on a **coverage `Referer`** (the test page URL carries
 - **Validated (2026-10-01):** inert without a coverage Referer; 404 with one; module served
   instrumented from the `-dbg` source; report renders the unminified source.
 
-### C. `sap-ui-debug` — runtime-driven un-bundling; middleware instruments the `-dbg` sources
+### C. runtime-driven un-bundling — middleware instruments the `-dbg` sources
 
-Move the un-bundling decision to the **runtime**: load the coverage page with
-`sap-ui-debug="<cover globs>"`. UI5's loader then (for matching modules only) ignores the bundled
-definition and fetches the individual **`-dbg`** module, which the existing coverage hook rewrites to
-`?instrument=true`. The middleware has **no 404 and no `Referer` gate** — it instruments the
-requested `-dbg` resource and reports it under the runtime path (`fromDebugPath`). Bundles are never
-instrumented: a bundle requested with `?instrument` is detected via its `ui5:IsBundle` resource tag
-and served verbatim (instrumenting the minified, concatenated bundle would corrupt coverage).
+Move the un-bundling decision to the **runtime**: it derives which modules to load un-bundled from the
+coverage configuration (the cover-only/cover-never filter) and sets `ignoreBundledResources`
+accordingly — no manually-set flag on the coverage page. UI5's loader then (for matching modules only)
+ignores the bundled definition and fetches the individual **`-dbg`** module, which the existing
+coverage hook rewrites to `?instrument=true`. The middleware has **no 404 and no `Referer` gate** — it
+instruments the requested `-dbg` resource and reports it under the runtime path (`fromDebugPath`).
+Bundles are never instrumented: a bundle requested with `?instrument` is detected via its
+`ui5:IsBundle` resource tag — or, when that tag is absent (the `minify` task skipped), a leading
+`//@ui5-bundle` content marker — and served verbatim (instrumenting the minified, concatenated bundle
+would corrupt coverage).
 
 Mechanism (verified in the OpenUI5 loader):
 - `sap-ui-debug` **glob (string) form** sets a filtered `ignoreBundledResources` + `debugSources`
@@ -81,9 +84,9 @@ Mechanism (verified in the OpenUI5 loader):
 - **Pro:** no fragile `Referer` gate; **no 404s**; **finer-grained** than `unbundle` (only covered
   modules go individual, the bundle still serves the rest); reuses a public, established UI5 mechanism.
 - **Con:** to be seamless it needs a UI5 **runtime change** — the test starter auto-deriving
-  `sap-ui-debug` from the cover config (see follow-ups); without it the coverage page must set
-  `sap-ui-debug` by hand. The bundle is still downloaded (200) even though covered modules are also
-  fetched individually — negligible for a few covered files.
+  `ignoreBundledResources` from the cover config (see follow-ups); without it the coverage page must
+  set the un-bundle config by hand. The bundle is still downloaded (200) even though covered modules
+  are also fetched individually — negligible for a few covered files.
 
 **Iframe robustness:** the un-bundle signal is **client-side config read per-frame**, deliverable via
 `window.localStorage` (shared per origin → inherited by every same-origin iframe,
@@ -110,15 +113,15 @@ final reports.
 
 ## Comparison
 
-| | A `instrument` | B `unbundle` | C `sap-ui-debug` | D pre-build task |
+| | A `instrument` | B `unbundle` | C runtime un-bundle | D pre-build task |
 |---|---|---|---|---|
 | Coverage fidelity | coarse (minified) | per-line | per-line | per-line |
-| Un-bundle driver | n/a (bundle instrumented) | server 404 | client (`sap-ui-debug`) | n/a (pre-build) |
+| Un-bundle driver | n/a (bundle instrumented) | server 404 | client (`ignoreBundledResources`) | n/a (pre-build) |
 | 404s | no | yes | no | no |
 | Referer gate | no | yes (fragile) | no | no |
 | Iframe-robust | n/a | ✗ | ✅ (client config) | ✅ |
 | Granularity | whole bundle | whole bundle | per module | n/a |
-| Needs runtime change | no | no | glob usage (opt. OpenUI5 ergonomics) | build task |
+| Needs runtime change | no | no | auto-derive (opt. OpenUI5 ergonomics) | build task |
 | Rebuild to enable | no | no | no | yes |
 | Status | 🔬 prototyped | 🔬 prototyped | ✅ implemented | 💡 discussed |
 
@@ -150,20 +153,24 @@ have **no** `-dbg` map, so the remap is correctly a no-op for them.
 
 ## Follow-ups / open items
 
-- **Caching (relevant to B).** Use ETags (like `serveResources`) so there's no stale `404` for bundles after a run.
+- **Caching (specific to B).** Only relevant to the prototyped `unbundle` approach, not the
+  implemented approach C (which issues no 404s): use ETags (like `serveResources`) so there's no stale
+  `404` for bundles after a run.
 - **Sanctioned middleware tag API.** Expose `getTag` + `STANDARD_TAGS` on `MiddlewareUtil` (symmetric
   with `TaskUtil`, routing to the correct tag collection — the no-arg `Resource#getTags()` only reads
-  the project collection and misses `IsBundle`) to replace the interim project-reach-through. Likely a
-  follow-up CLI BLI, sibling to CPOUI5FOUNDATION-1306.
-- **TypeScript**: test the setup with TypeScript projects (using the `ui5-tooling-transpile` task;)
+  the project collection and misses `IsBundle`) to replace the interim project-reach-through. The
+  `//@ui5-bundle` content-marker fallback already de-risks a missing tag (it is absent when `minify` is
+  skipped), so this is an ergonomics/correctness improvement rather than a blocker. Likely a follow-up
+  CLI BLI, sibling to CPOUI5FOUNDATION-1306.
 
 ### openui5 runtime
 
-Runtime-side (OpenUI5) work that completes approach **C** (`sap-ui-debug`) — the middleware already
-covers the server side. The `sap-ui-debug` auto-derive makes C seamless (no manually-set flag); the
-`?coverage` propagation is a shared prerequisite that also benefits the other approaches.
+Runtime-side (OpenUI5) work that completes approach **C** (runtime-driven un-bundling) — the
+middleware already covers the server side. The `ignoreBundledResources` auto-derive makes C seamless
+(no manually-set flag); the `?coverage` propagation is a shared prerequisite that also benefits the
+other approaches.
 
-- **auto-derive `sap-ui-debug`.** So the coverage page need not carry it by
+- **auto-derive the un-bundle config.** So the coverage page need not carry it by
   hand, auto-derive in `_setupAndStart.js` (istanbul branch, before `bootCore`) from the QUnit
   `cover-only`/`cover-never` config: `sap.ui.loader.config({ ignoreBundledResources: <filter>,
   debugSources: true })`, honoring `cover-never` exactly (a positive-only `sap-ui-debug` glob string
