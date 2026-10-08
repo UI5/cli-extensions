@@ -7,19 +7,10 @@ import {execa} from "execa";
 
 const require = createRequire(import.meta.url);
 
-// Resolve the v5 CLI from the `@ui5/cli-next` alias (v5 installed alongside the repo's v4). Resolved
-// by its explicit path because the `ui5` bin name collides between the two majors. Absent (alias not
-// installed) -> `v5Available` is false and the v5-only suites skip rather than fail.
-let ui5V5Bin;
-try {
-	const pkgJson = require.resolve("@ui5/cli-next/package.json");
-	ui5V5Bin = path.join(path.dirname(pkgJson), require(pkgJson).bin.ui5);
-} catch {
-	ui5V5Bin = undefined;
-}
-
-export {ui5V5Bin};
-export const v5Available = Boolean(ui5V5Bin);
+// Resolve the UI5 CLI bin by its explicit path so the server can be spawned via Node directly (see
+// `startServer`). `@ui5/cli` is a devDependency of this package.
+const cliPkgJson = require.resolve("@ui5/cli/package.json");
+const ui5Bin = path.join(path.dirname(cliPkgJson), require(cliPkgJson).bin.ui5);
 
 // A standalone fixture resolves its custom middleware/task from its own node_modules, which CI's root
 // `npm ci` does not reach. Install on demand; idempotent.
@@ -69,7 +60,7 @@ export async function startServer({cwd, config, excludeTasks = [], warmUpPaths =
 	// `--cache Off` forces a fresh in-memory build every time: scenarios serve the same fixture with
 	// different `--exclude-task` sets, and the on-disk build cache (~/.ui5/buildCache) would otherwise
 	// serve a prior scenario's artifacts.
-	const args = [ui5V5Bin, "serve", "--cache", "Off", "--port", String(port)];
+	const args = [ui5Bin, "serve", "--cache", "Off", "--port", String(port)];
 	if (config) {
 		args.push("--config", config);
 	}
@@ -77,9 +68,9 @@ export async function startServer({cwd, config, excludeTasks = [], warmUpPaths =
 		args.push("--exclude-task", ...excludeTasks);
 	}
 
-	// Spawn the v5 CLI via Node directly (not the colliding `ui5` bin). UI5_CLI_NO_LOCAL stops it from
-	// delegating to a project-local CLI install. `reject: false` so killing the server in teardown
-	// resolves instead of surfacing an unhandled SIGTERM rejection.
+	// Spawn the UI5 CLI via Node directly. UI5_CLI_NO_LOCAL stops it from delegating to a project-local
+	// CLI install. `reject: false` so killing the server in teardown resolves instead of surfacing an
+	// unhandled SIGTERM rejection.
 	const child = execa(process.execPath, args, {
 		cwd,
 		env: {...process.env, UI5_CLI_NO_LOCAL: "true"},

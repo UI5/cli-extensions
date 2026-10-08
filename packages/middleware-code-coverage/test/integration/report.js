@@ -1,10 +1,9 @@
 import {default as test, registerCompletionHandler} from "ava";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
-import {startServer, extractCoverageData, v5Available} from "./_v5Server.js";
+import {startServer, extractCoverageData} from "./_server.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TEST_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
 // A served UI5 project keeps the process alive via the child's pipes; force a clean exit once done.
 registerCompletionHandler(() => {
@@ -14,15 +13,13 @@ registerCompletionHandler(() => {
 // Report-time behaviour against a real build: coverage posted for multiple files is aggregated and
 // (for TypeScript) remapped onto the original `.ts`, the generated report is served and renders the
 // original source, a configured non-default reporter is exposed, and plain-JS coverage (no input
-// source map) is reported under its runtime path unchanged. Requires the v5 CLI; skips when absent.
+// source map) is reported under its runtime path unchanged.
 
 const LIB_TS = path.join(__dirname, "fixtures", "coverage-lib-ts");
 const LIB_TS_CONFIG = path.join(__dirname, "fixtures", "config", "coverage-lib-ts.yaml");
 const REPORTERS_CONFIG = path.join(__dirname, "fixtures", "config", "coverage-lib-ts-reporters.yaml");
 const DEP_LIB = path.join(__dirname, "fixtures", "coverage-dep-lib");
 const DEP_LIB_CONFIG = path.join(__dirname, "fixtures", "config", "coverage-dep-lib.yaml");
-
-const v5test = v5Available ? test.serial : test.serial.skip;
 
 async function serve(t, options) {
 	const {app, child} = await startServer(options);
@@ -36,8 +33,7 @@ async function instrumentedCoverage(app, modulePath) {
 	return extractCoverageData(res.text);
 }
 
-v5test("aggregates coverage for multiple files, each remapped to its .ts, and serves the report", async (t) => {
-	t.timeout(TEST_TIMEOUT);
+test.serial("aggregates coverage for multiple files, each remapped to its .ts, and serves the report", async (t) => {
 	const app = await serve(t, {
 		cwd: LIB_TS,
 		config: LIB_TS_CONFIG,
@@ -70,8 +66,7 @@ v5test("aggregates coverage for multiple files, each remapped to its .ts, and se
 	t.true(page.text.includes("greet"), "the per-file report renders the original TypeScript source");
 });
 
-v5test("exposes and serves a configured non-default reporter", async (t) => {
-	t.timeout(TEST_TIMEOUT);
+test.serial("exposes and serves a configured non-default reporter", async (t) => {
 	const app = await serve(t, {
 		cwd: LIB_TS,
 		config: REPORTERS_CONFIG,
@@ -91,8 +86,7 @@ v5test("exposes and serves a configured non-default reporter", async (t) => {
 	await app.get(`/.ui5/coverage/report/${lcov.destination}`).expect(200);
 });
 
-v5test("plain-JS coverage is reported under its runtime path, not remapped", async (t) => {
-	t.timeout(TEST_TIMEOUT);
+test.serial("plain-JS coverage is reported under its runtime path, not remapped", async (t) => {
 	const app = await serve(t, {
 		cwd: DEP_LIB,
 		config: DEP_LIB_CONFIG,

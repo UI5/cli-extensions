@@ -1,10 +1,9 @@
 import {default as test, registerCompletionHandler} from "ava";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
-import {startServer, extractCoverageData, v5Available} from "./_v5Server.js";
+import {startServer, extractCoverageData} from "./_server.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TEST_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
 // A served UI5 project keeps the process alive via the child's pipes; force a clean exit once done.
 registerCompletionHandler(() => {
@@ -17,8 +16,8 @@ registerCompletionHandler(() => {
 //   - minify emits the unminified `-dbg` variant; without it the middleware falls back to the
 //     (already unminified) runtime file.
 //   - generate*Preload emits the bundle; the `ui5:IsBundle` guard serves it verbatim when present.
-// Each scenario runs its own `ui5 serve` with --cache Off (see _v5Server.js) so the exclude sets do
-// not leak across runs. Requires the v5 CLI; skips when absent.
+// Each scenario runs its own `ui5 serve` with --cache Off (see _server.js) so the exclude sets do
+// not leak across runs.
 
 const APP = path.join(__dirname, "fixtures", "ui5-app");
 const LIB = path.join(__dirname, "fixtures", "coverage-lib-ts");
@@ -71,13 +70,8 @@ const scenarios = [
 	}
 ];
 
-// Run only when a v5 CLI is available; otherwise skip (keeps the suite green on the v4 default).
-const v5test = v5Available ? test.serial : test.serial.skip;
-
 for (const s of scenarios) {
-	v5test(s.title, async (t) => {
-		t.timeout(TEST_TIMEOUT);
-
+	test.serial(s.title, async (t) => {
 		const warmUpPaths = [`${s.module}?instrument=true`];
 		if (s.preloadVerbatim) {
 			warmUpPaths.push(s.preload);

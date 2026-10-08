@@ -1,10 +1,9 @@
 import {default as test, registerCompletionHandler} from "ava";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
-import {startServer, extractCoverageData, v5Available} from "./_v5Server.js";
+import {startServer, extractCoverageData} from "./_server.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TEST_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
 // A served UI5 project keeps the process alive via the child's pipes; force a clean exit once done.
 registerCompletionHandler(() => {
@@ -16,16 +15,12 @@ registerCompletionHandler(() => {
 // code keyed to the module's runtime path, built from the unminified `-dbg` source when present;
 // bundles are served verbatim; and TypeScript coverage is remapped onto the original `.ts` at report
 // time. Requests are issued directly against the server — no browser — exercising the middleware end
-// to end. Requires the v5 CLI (see _v5Server.js); skips when absent.
+// to end. The server is started via _server.js.
 
 const fixtureDir = path.join(__dirname, "fixtures", "coverage-lib-ts");
 const configPath = path.join(__dirname, "fixtures", "config", "coverage-lib-ts.yaml");
 
 test.before(async (t) => {
-	t.timeout(TEST_TIMEOUT);
-	if (!v5Available) {
-		return; // handled per-test via the skip guard below
-	}
 	const {app, child} = await startServer({
 		cwd: fixtureDir,
 		config: configPath,
@@ -42,10 +37,7 @@ test.after.always((t) => {
 	t.context.child?.kill();
 });
 
-// Run only when a v5 CLI is available; otherwise skip (keeps the suite green on the v4 default).
-const v5test = v5Available ? test.serial : test.serial.skip;
-
-v5test("instruments a -dbg module and keys coverage to the runtime path", async (t) => {
+test.serial("instruments a -dbg module and keys coverage to the runtime path", async (t) => {
 	// The exact request the runtime emits for a covered module loaded un-bundled.
 	const res = await t.context.app
 		.get("/resources/covered/lib/Thing-dbg.js?instrument=true")
@@ -56,7 +48,7 @@ v5test("instruments a -dbg module and keys coverage to the runtime path", async 
 		"coverage is keyed to the runtime path, not the -dbg path");
 });
 
-v5test("instruments a runtime-path request from the unminified -dbg source", async (t) => {
+test.serial("instruments a runtime-path request from the unminified -dbg source", async (t) => {
 	const res = await t.context.app
 		.get("/resources/covered/lib/Thing.js?instrument=true")
 		.expect(200);
@@ -66,7 +58,7 @@ v5test("instruments a runtime-path request from the unminified -dbg source", asy
 	t.false(res.text.includes("greet(e)"), "not the minified runtime artifact");
 });
 
-v5test("serves a bundle requested with ?instrument verbatim, never instrumented", async (t) => {
+test.serial("serves a bundle requested with ?instrument verbatim, never instrumented", async (t) => {
 	const res = await t.context.app
 		.get("/resources/covered/lib/library-preload.js?instrument=true")
 		.expect(200);
@@ -75,7 +67,7 @@ v5test("serves a bundle requested with ?instrument verbatim, never instrumented"
 	t.false(res.text.includes("cov_"), "the bundle carries no instrumentation counters");
 });
 
-v5test("leaves a resource without ?instrument untouched (minified, no counters)", async (t) => {
+test.serial("leaves a resource without ?instrument untouched (minified, no counters)", async (t) => {
 	const res = await t.context.app
 		.get("/resources/covered/lib/Thing.js")
 		.expect(200);
@@ -84,7 +76,7 @@ v5test("leaves a resource without ?instrument untouched (minified, no counters)"
 	t.true(res.text.includes("greet(e)"), "served as the minified runtime artifact");
 });
 
-v5test("remaps TypeScript coverage onto the original .ts at report time", async (t) => {
+test.serial("remaps TypeScript coverage onto the original .ts at report time", async (t) => {
 	// Instrument the module, collect the coverage object the client would post (carrying the
 	// input source map), and report it back.
 	const instrumented = await t.context.app

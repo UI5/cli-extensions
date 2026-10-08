@@ -25,7 +25,7 @@ formatMessage(message) {
 
 // The middleware reads the build output through the `builtResources` reader split introduced for
 // Specification Version 5.0 (CPOUI5FOUNDATION-1306). Mocked here so the HTTP contract can be
-// exercised in-process without a real v5 build (that end-to-end path lives in v5-bundle.js).
+// exercised in-process without a real v5 build (that end-to-end path lives in bundle.js).
 const builtResources = {
 	all: {
 		byGlob() {
