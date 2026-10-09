@@ -4,6 +4,9 @@
 	},
 	"pull-request-header": ":tractor: New release prepared",
 	"pull-request-title-pattern": "release:${component} v${version}",
+	"prerelease": true,
+	"prerelease-type": "alpha",
+	"versioning": "prerelease",
 	"separate-pull-requests": true,
 	"include-component-in-tag": true,
 	"changelog-sections": [

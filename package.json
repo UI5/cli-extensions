@@ -24,7 +24,7 @@
 		"url": "git@github.com:UI5/cli-extensions.git"
 	},
 	"engines": {
-		"node": "^20.11.0 || >=22.0.0",
+		"node": "^22.22.2 || ^24.15.0 || >=26.0.0",
 		"npm": ">=8"
 	},
 	"devDependencies": {
