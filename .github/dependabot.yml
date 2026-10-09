@@ -1,8 +1,8 @@
 version: 2
-target-branch: "v2"
 updates:
 - package-ecosystem: "github-actions"
   directory: "/"
+  target-branch: "v2"
   schedule:
     interval: "weekly"
   cooldown:
@@ -11,6 +11,7 @@ updates:
     prefix: "ci(github-actions)"
 - package-ecosystem: npm
   directory: "/"
+  target-branch: "v2"
   schedule:
     interval: weekly
     day: sunday
