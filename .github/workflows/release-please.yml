@@ -11,7 +11,7 @@ on:
           - middleware-code-coverage
   push:
     branches:
-      - main
+      - v2
 
 permissions: {}
 
