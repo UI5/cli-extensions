@@ -155,22 +155,18 @@ export default async function({log, middlewareUtil, options={}, builtResources})
 			// the client selects and what the reporter reads.
 			const reportedPath = isDebugPath(pathname) ? fromDebugPath(pathname) : pathname;
 
-			// Prefer the unminified -dbg source for faithful per-line coverage; fall back to the requested
-			// resource when no -dbg variant exists (minify task disabled, or the -dbg variant was requested
-			// directly).
-			let sourcePath;
-			let matchedResource;
-			if (!isDebugPath(pathname)) {
-				sourcePath = toDebugPath(pathname);
-				matchedResource = await builtResources.all.byPath(sourcePath);
-			}
+			// Prefer the unminified -dbg source for faithful per-line coverage; fall back to the runtime
+			// file when no -dbg variant exists (minify task disabled, or the -dbg was requested directly).
+			let sourcePath = toDebugPath(reportedPath);
+			let matchedResource = await builtResources.all.byPath(sourcePath);
 			if (!matchedResource) {
-				sourcePath = pathname;
-				matchedResource = await builtResources.all.byPath(pathname);
+				sourcePath = reportedPath;
+				matchedResource = await builtResources.all.byPath(reportedPath);
 			}
 
 			if (!matchedResource) {
-				log.warn(`${pathname} not found`);
+				// A missing -dbg request is routine (the runtime probes it); a missing runtime file is not.
+				log[isDebugPath(pathname) ? "verbose" : "warn"](`${pathname} not found`);
 				next();
 				return;
 			}
