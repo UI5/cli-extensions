@@ -2,10 +2,17 @@
 	"packages": {
 		"packages/middleware-code-coverage": {}
 	},
+	"plugins": [
+		{
+			"type": "node-workspace",
+			"merge": false
+		}
+	],
 	"pull-request-header": ":tractor: New release prepared",
 	"pull-request-title-pattern": "release:${component} v${version}",
 	"prerelease": true,
 	"prerelease-type": "alpha",
+	"release-type": "node",
 	"versioning": "prerelease",
 	"separate-pull-requests": true,
 	"include-component-in-tag": true,
