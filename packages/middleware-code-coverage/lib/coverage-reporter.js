@@ -53,11 +53,6 @@ export default async function(coverageData, config, builtResources, log) {
 	// which pass through keyed by their runtime path.
 	const sourceMapStore = createSourceMapStore();
 	coverageMap = await sourceMapStore.transformCoverage(coverageMap);
-
-	// istanbul-lib-source-maps resolves the source map's `sources` through Node's `path` module, so on
-	// Windows the remapped keys come out as native absolute paths (e.g. `D:\resources\...`). Coverage
-	// keys are POSIX UI5 runtime paths — normalize them back so the keys, the build-output lookups
-	// below, and the generated report are identical across platforms.
 	coverageMap = normalizeToRuntimePaths(coverageMap);
 
 	// Get & stash the source for each (possibly remapped) key. For a remapped original (e.g. a .ts)
@@ -129,15 +124,15 @@ export default async function(coverageData, config, builtResources, log) {
 }
 
 /**
- * Re-keys a coverage map so every path is a POSIX UI5 runtime path.
+ * Re-keys a source-map-transformed coverage map to POSIX UI5 runtime paths.
  *
- * <code>transformCoverage</code> resolves input-source-map sources through Node's <code>path</code>
- * module; on Windows that yields native absolute paths (backslashes and a drive letter). Coverage keys
- * are runtime resource paths, so convert separators and drop any drive prefix to keep behaviour
- * platform-independent. A no-op for keys that are already POSIX paths (plain JS, non-Windows).
+ * transformCoverage resolves map sources via Node's `path`, so on Windows remapped keys arrive as
+ * native paths (e.g. `D:\...`). Assumes relative map sources (as ui5-tooling-transpile emits): only
+ * drive letters and separators are normalized — an absolute `sources`/`sourceRoot` is not recoverable
+ * to a runtime path here.
  *
- * @param {object} coverageMap istanbul coverage map (after the source-map transform)
- * @returns {object} A coverage map re-keyed to POSIX runtime paths
+ * @param {object} coverageMap Coverage map after the source-map transform
+ * @returns {object} Coverage map re-keyed to POSIX runtime paths
  */
 function normalizeToRuntimePaths(coverageMap) {
 	const normalizedData = {};
