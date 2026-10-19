@@ -498,4 +498,22 @@ test("loadInputSourceMap: an unparseable map returns undefined and is not fatal"
 	t.is(warnings.length, 1, "the failure is surfaced via log.verbose");
 });
 
+test("loadInputSourceMap: inline data-URI map (not base64) is decoded without a reader", async (t) => {
+	const map = {version: 3, sources: ["Thing.ts"], mappings: "AAAA"};
+	const code = `var x = 1;\n${SOURCE_MAPPING_URL}=data:application/json;charset=utf-8,` +
+		encodeURIComponent(JSON.stringify(map));
+	const reader = {byPath() {
+		throw new Error("reader should not be consulted for an inline map");
+	}};
+	t.deepEqual(await loadInputSourceMap(code, "/resources/ns/Thing-dbg.js", reader), map);
+});
+
+test("loadInputSourceMap: a missing external map returns undefined", async (t) => {
+	const reader = {async byPath() {
+		return undefined;
+	}};
+	const code = `var x = 1;\n${SOURCE_MAPPING_URL}=Thing-dbg.js.map`;
+	t.is(await loadInputSourceMap(code, "/resources/ns/Thing-dbg.js", reader), undefined);
+});
+
 

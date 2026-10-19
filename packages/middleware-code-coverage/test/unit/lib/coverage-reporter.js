@@ -308,3 +308,34 @@ test("Report Coverage: remaps through an embedded input source map to the origin
 	t.true(requested.includes("/resources/covered/lib/Thing.ts"),
 		"the remapped .ts source is read from the sandboxed builtResources, not the filesystem");
 });
+
+test("Report Coverage: a -dbg coverage key is read directly, without a second -dbg lookup", async (t) => {
+	const {coverageReporter} = t.context;
+	// When the posted coverage is already keyed by a -dbg path, the reporter reads that resource
+	// directly — the "prefer -dbg" lookup is skipped because the key is the -dbg variant itself.
+	const dbgCoverage = {
+		coverage: {
+			"/resources/Control1-dbg.js": {
+				...coverageData.coverage["/resources/Control1.js"],
+				path: "/resources/Control1-dbg.js"
+			}
+		}
+	};
+	const requested = [];
+	const builtResources = {
+		all: {
+			byPath(resourcePath) {
+				requested.push(resourcePath);
+				return mockedResource.all.byPath(resourcePath);
+			}
+		}
+	};
+
+	const config = await createInstrumentationConfig();
+	const report = await coverageReporter(dbgCoverage, config, builtResources);
+
+	t.deepEqual(report.coverageMap, ["/resources/Control1-dbg.js"],
+		"a -dbg key without an input source map stays keyed to the -dbg path");
+	t.deepEqual(requested, ["/resources/Control1-dbg.js"],
+		"the -dbg key is read directly; no toDebugPath lookup is attempted");
+});
