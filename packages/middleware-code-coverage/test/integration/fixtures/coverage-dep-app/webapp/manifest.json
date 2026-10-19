@@ -1,0 +1,16 @@
+{
+	"_version": "1.60.0",
+	"sap.app": {
+		"id": "covered.app",
+		"type": "application",
+		"title": "Coverage dependency probe app"
+	},
+	"sap.ui5": {
+		"dependencies": {
+			"minUI5Version": "1.120.0",
+			"libs": {
+				"covered.lib": {}
+			}
+		}
+	}
+}
