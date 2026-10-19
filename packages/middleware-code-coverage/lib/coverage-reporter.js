@@ -54,6 +54,12 @@ export default async function(coverageData, config, builtResources, log) {
 	const sourceMapStore = createSourceMapStore();
 	coverageMap = await sourceMapStore.transformCoverage(coverageMap);
 
+	// istanbul-lib-source-maps resolves the source map's `sources` through Node's `path` module, so on
+	// Windows the remapped keys come out as native absolute paths (e.g. `D:\resources\...`). Coverage
+	// keys are POSIX UI5 runtime paths — normalize them back so the keys, the build-output lookups
+	// below, and the generated report are identical across platforms.
+	coverageMap = normalizeToRuntimePaths(coverageMap);
+
 	// Get & stash the source for each (possibly remapped) key. For a remapped original (e.g. a .ts)
 	// the transpiled build output contains the original source next to its -dbg variant; for un-mapped
 	// keys (plain JS, keyed by the runtime path) the unminified -dbg variant is read. Sources are
@@ -120,4 +126,26 @@ export default async function(coverageData, config, builtResources, log) {
 		coverageMap: Object.keys(coverageMap.data),
 		availableReports: reportResults
 	};
+}
+
+/**
+ * Re-keys a coverage map so every path is a POSIX UI5 runtime path.
+ *
+ * <code>transformCoverage</code> resolves input-source-map sources through Node's <code>path</code>
+ * module; on Windows that yields native absolute paths (backslashes and a drive letter). Coverage keys
+ * are runtime resource paths, so convert separators and drop any drive prefix to keep behaviour
+ * platform-independent. A no-op for keys that are already POSIX paths (plain JS, non-Windows).
+ *
+ * @param {object} coverageMap istanbul coverage map (after the source-map transform)
+ * @returns {object} A coverage map re-keyed to POSIX runtime paths
+ */
+function normalizeToRuntimePaths(coverageMap) {
+	const normalizedData = {};
+	for (const key of coverageMap.files()) {
+		const fileCoverage = coverageMap.fileCoverageFor(key).data;
+		const runtimePath = key.replace(/\\/g, "/").replace(/^[a-zA-Z]:/, "");
+		fileCoverage.path = runtimePath;
+		normalizedData[runtimePath] = fileCoverage;
+	}
+	return istanbulLibCoverage.createCoverageMap(normalizedData);
 }

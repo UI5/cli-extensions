@@ -339,3 +339,37 @@ test("Report Coverage: a -dbg coverage key is read directly, without a second -d
 	t.deepEqual(requested, ["/resources/Control1-dbg.js"],
 		"the -dbg key is read directly; no toDebugPath lookup is attempted");
 });
+
+test("Report Coverage: a native Windows remapped key is normalized to a POSIX runtime path", async (t) => {
+	const {coverageReporter} = t.context;
+	// istanbul-lib-source-maps resolves source-map sources with the native path module, so on Windows a
+	// remapped key arrives as a native absolute path. The reporter must normalize it back to the POSIX
+	// runtime path so keys and build-output lookups are identical across platforms. Using a literal
+	// Windows path keeps this test deterministic on every OS.
+	const windowsKey = "D:\\resources\\covered\\lib\\Thing.ts";
+	const winCoverage = {
+		coverage: {
+			[windowsKey]: {
+				...coverageData.coverage["/resources/Control1.js"],
+				path: windowsKey
+			}
+		}
+	};
+	const requested = [];
+	const builtResources = {
+		all: {
+			byPath(resourcePath) {
+				requested.push(resourcePath);
+				return mockedResource.all.byPath(resourcePath);
+			}
+		}
+	};
+
+	const config = await createInstrumentationConfig();
+	const report = await coverageReporter(winCoverage, config, builtResources);
+
+	t.deepEqual(report.coverageMap, ["/resources/covered/lib/Thing.ts"],
+		"the native Windows path is normalized to a POSIX runtime path");
+	t.true(requested.includes("/resources/covered/lib/Thing.ts"),
+		"the normalized POSIX key is used for the build-output lookup");
+});

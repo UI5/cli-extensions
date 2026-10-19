@@ -24,7 +24,7 @@ async function ensureFixtureInstalled(cwd) {
 // build is ready: the serve pipeline builds each artifact lazily on first request. Only warm paths
 // that are expected to exist (a 404 path — e.g. a bundle skipped via --exclude-task — would never
 // reach 200). Retries so assertions never race a cold first build (which can yield a malformed body).
-async function warmUp(app, paths, attempts = 30) {
+async function warmUp(app, paths, attempts = 120) {
 	for (const resourcePath of paths) {
 		let ready = false;
 		for (let i = 0; i < attempts && !ready; i++) {
