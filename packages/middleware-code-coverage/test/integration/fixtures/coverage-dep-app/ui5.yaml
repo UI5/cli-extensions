@@ -1,6 +1,6 @@
-specVersion: "3.0"
+specVersion: "5.0"
 metadata:
-  name: ui5-app
+  name: covered.app
 type: application
 server:
   customMiddleware:

@@ -17,12 +17,6 @@ const config = {
 
 	ignoreDependencies: [
 		/**
-		 * Used in packages/middleware-code-coverage/test/integration/fixtures/ui5-app/package.json
-		 * which is not part of the scope that knip analyzes
-		 */
-		"@ui5/cli",
-
-		/**
 		 * Used via nyc ava --node-arguments="--experimental-loader=@istanbuljs/esm-loader-hook"
 		 * which is not detected by knip as a usage of this package
 		 */

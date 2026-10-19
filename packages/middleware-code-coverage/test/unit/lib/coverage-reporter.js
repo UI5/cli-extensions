@@ -255,3 +255,56 @@ test.serial("Report Coverage: Fronted config for watermarks- overwrite just some
 	esmock.purge(libReport);
 	esmock.purge(coverageReporter);
 });
+
+test("Report Coverage: remaps through an embedded input source map to the original source", async (t) => {
+	const {coverageReporter} = t.context;
+
+	// A file instrumented from a TypeScript project's transpiled -dbg source carries an input source
+	// map back to the original .ts in its coverage data. The reporter must remap coverage onto that
+	// .ts and render it from the map's embedded sourcesContent (not the build output).
+	const tsCoverage = {
+		coverage: {
+			"/resources/covered/lib/Thing.js": {
+				path: "/resources/covered/lib/Thing.js",
+				statementMap: {"0": {start: {line: 1, column: 0}, end: {line: 1, column: 20}}},
+				fnMap: {},
+				branchMap: {},
+				s: {"0": 1},
+				f: {},
+				b: {},
+				inputSourceMap: {
+					version: 3,
+					file: "Thing.js",
+					sources: ["Thing.ts"],
+					sourcesContent: ["export const greet = 1;\n"],
+					names: [],
+					mappings: "AAAA" // generated (1,0) -> Thing.ts (1,0)
+				}
+			}
+		}
+	};
+
+	// Source for the remapped .ts must be read from the sandboxed build output — never the raw
+	// filesystem — since keys originate from client-posted coverage data.
+	const requested = [];
+	const builtResources = {
+		all: {
+			byPath(resourcePath) {
+				requested.push(resourcePath);
+				return {
+					async getString() {
+						return "export const greet = 1;\n";
+					}
+				};
+			}
+		}
+	};
+
+	const config = await createInstrumentationConfig();
+	const report = await coverageReporter(tsCoverage, config, builtResources);
+
+	t.deepEqual(report.coverageMap, ["/resources/covered/lib/Thing.ts"],
+		"coverage is remapped from the runtime .js path to the original .ts source");
+	t.true(requested.includes("/resources/covered/lib/Thing.ts"),
+		"the remapped .ts source is read from the sandboxed builtResources, not the filesystem");
+});
