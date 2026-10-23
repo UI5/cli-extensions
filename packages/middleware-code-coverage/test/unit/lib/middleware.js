@@ -32,7 +32,10 @@ const resources = {
 		byGlob() {
 			return [];
 		},
-		async byPath() {
+		async byPath(filePath) {
+			if (!filePath.endsWith(".js")) {
+				return null;
+			}
 			return {
 				async getString() {
 					return sampleJS;
@@ -59,7 +62,7 @@ test.beforeEach(async (t) => {
 
 test("Ping request", async (t) => {
 	const {instrumenterMiddleware, readJsonFile} = t.context;
-	const middleware = await instrumenterMiddleware({resources});
+	const middleware = await instrumenterMiddleware({builtResources: resources});
 
 	t.plan(7);
 
@@ -100,7 +103,7 @@ test("Coverage report request", async (t) => {
 	const instrumenterMiddleware = await esmock("../../../lib/middleware.js", {
 		"../../../lib/coverage-reporter.js": reportCoverageStub.returns(expectedCoverageReport)
 	});
-	const middleware = await instrumenterMiddleware({log, resources});
+	const middleware = await instrumenterMiddleware({log, builtResources: resources});
 
 	t.plan(8);
 
@@ -147,7 +150,7 @@ test("Coverage report request: no report data", async (t) => {
 	const coverageData = {
 		a: "b"
 	};
-	const middleware = await instrumenterMiddleware({log, resources});
+	const middleware = await instrumenterMiddleware({log, builtResources: resources});
 
 	t.plan(2);
 
@@ -184,7 +187,7 @@ test("Coverage report request: no body", async (t) => {
 	const instrumenterMiddleware = await esmock("../../../lib/middleware.js", {
 		"../../../lib/coverage-reporter.js": reportCoverageStub.returns(undefined)
 	});
-	const middleware = await instrumenterMiddleware({log, resources});
+	const middleware = await instrumenterMiddleware({log, builtResources: resources});
 
 	t.plan(2);
 
@@ -219,7 +222,7 @@ test("Consume Coverage report request", async (t) => {
 	const instrumenterMiddleware = await esmock.p("../../../lib/middleware.js", {
 		"serve-static": () => serveStaticStub
 	});
-	const middleware = await instrumenterMiddleware({resources});
+	const middleware = await instrumenterMiddleware({builtResources: resources});
 
 	t.plan(1);
 
@@ -241,7 +244,7 @@ test("Instrument resources request with source map", async (t) => {
 		verbose: sinon.stub()
 	};
 	const {instrumenterMiddleware} = t.context;
-	const middleware = await instrumenterMiddleware({log, middlewareUtil, resources});
+	const middleware = await instrumenterMiddleware({log, middlewareUtil, builtResources: resources});
 
 	t.plan(5);
 
@@ -278,7 +281,7 @@ test("Instrument resources request with source map: manual enablement", async (t
 	};
 	const {instrumenterMiddleware} = t.context;
 	const options = {configuration: {instrument: {produceSourceMap: true}}};
-	const middleware = await instrumenterMiddleware({log, middlewareUtil, options, resources});
+	const middleware = await instrumenterMiddleware({log, middlewareUtil, options, builtResources: resources});
 
 	t.plan(5);
 
@@ -316,7 +319,7 @@ test("Instrument resources request without source map", async (t) => {
 	};
 	const {instrumenterMiddleware} = t.context;
 	const options = {configuration: {instrument: {produceSourceMap: false}}};
-	const middleware = await instrumenterMiddleware({log, middlewareUtil, options, resources});
+	const middleware = await instrumenterMiddleware({log, middlewareUtil, options, builtResources: resources});
 
 	t.plan(5);
 
@@ -347,6 +350,66 @@ test("Instrument resources request without source map", async (t) => {
 	});
 });
 
+test("Instrument resources request: a malformed source map is ignored, not fatal", async (t) => {
+	const log = {
+		verbose: sinon.stub(),
+		warn: sinon.stub(),
+		error: sinon.stub()
+	};
+	const {instrumenterMiddleware} = t.context;
+	// Build output where the sibling `.map` referenced by the source is corrupt. The request must
+	// still be instrumented (keyed to the runtime path) rather than failing with a 500 / next(err).
+	const builtResources = {
+		all: {
+			byGlob() {
+				return [];
+			},
+			async byPath(filePath) {
+				if (filePath.endsWith(".map")) {
+					return {
+						async getString() {
+							return "{ this is not valid json";
+						}
+					};
+				}
+				if (!filePath.endsWith(".js")) {
+					return null;
+				}
+				return {
+					async getString() {
+						// Source points at the (corrupt) sibling map via a sourceMappingURL comment.
+						return `${sampleJS}\n${SOURCE_MAPPING_URL}=Control1-dbg.js.map`;
+					}
+				};
+			}
+		}
+	};
+	const middleware = await instrumenterMiddleware({log, middlewareUtil, builtResources});
+
+	t.plan(2);
+
+	await new Promise((resolve) => {
+		const res = {
+			end(resource) {
+				t.true(resource.includes("path=\"/resources/lib1/Control1.js\""),
+					"instrumented despite the unparseable source map");
+				resolve();
+			},
+			setHeader() {}
+		};
+		const next = (err) => {
+			t.fail("should not be called: " + (err && err.message));
+			resolve();
+		};
+		middleware({
+			method: "GET",
+			url: "/resources/lib1/Control1.js?instrument=true"
+		}, res, next);
+	});
+
+	t.is(log.error.callCount, 0, "the request did not fail");
+});
+
 test("Instrument resources request for non instrumented resource", async (t) => {
 	const shouldInstrumentResourceStub = sinon.stub().returns(false);
 	const log = {};
@@ -355,7 +418,7 @@ test("Instrument resources request for non instrumented resource", async (t) => 
 			shouldInstrumentResource: shouldInstrumentResourceStub
 		}
 	});
-	const middleware = await instrumenterMiddleware({log, middlewareUtil, resources});
+	const middleware = await instrumenterMiddleware({log, middlewareUtil, builtResources: resources});
 
 	t.plan(2);
 
@@ -402,7 +465,7 @@ test("Instrument resources request with no matching resources", async (t) => {
 		}
 	};
 	const {instrumenterMiddleware} = t.context;
-	const middleware = await instrumenterMiddleware({log, middlewareUtil, resources});
+	const middleware = await instrumenterMiddleware({log, middlewareUtil, builtResources: resources});
 
 	t.plan(3);
 
@@ -425,6 +488,268 @@ test("Instrument resources request with no matching resources", async (t) => {
 			}
 			t.is(log.verbose.callCount, 1);
 			t.is(log.warn.callCount, 1);
+			resolve();
+		};
+		middleware({
+			method: "GET",
+			url: "/resources/lib1/Control1.js?instrument=true"
+		}, res, next);
+	});
+});
+
+test("Instrument resources request for a bundle is served verbatim, not instrumented", async (t) => {
+	const log = {
+		verbose: sinon.stub(),
+		warn: sinon.stub()
+	};
+	// The matched resource is a bundle (leading //@ui5-bundle marker). It must be handed to the next
+	// middleware untouched rather than instrumented (instrumenting a bundle would corrupt coverage).
+	const builtResources = {
+		all: {
+			byGlob() {
+				return [];
+			},
+			async byPath(filePath) {
+				if (!filePath.endsWith(".js")) {
+					return null;
+				}
+				return {
+					async getString() {
+						return "//@ui5-bundle ui5.sample.Component-preload\nsap.ui.require.preload({});";
+					}
+				};
+			}
+		}
+	};
+	const {instrumenterMiddleware} = t.context;
+	const middleware = await instrumenterMiddleware({log, middlewareUtil, builtResources});
+
+	t.plan(2);
+
+	await new Promise((resolve) => {
+		const res = {
+			end() {
+				t.fail("should not be called.");
+				resolve();
+			},
+			setHeader() {
+				t.fail("should not be called.");
+				resolve();
+			}
+		};
+		const next = (error) => {
+			if (error) {
+				t.fail(error);
+			} else {
+				t.pass("served without instrumentation");
+			}
+			t.true(log.verbose.getCalls().some((c) => String(c.args[0]).includes("is a bundle")),
+				"the bundle is logged as served without instrumentation");
+			resolve();
+		};
+		middleware({
+			method: "GET",
+			url: "/resources/lib1/Control1.js?instrument=true"
+		}, res, next);
+	});
+});
+
+test("Instrument resources request for a tag-detected bundle skips reading the source", async (t) => {
+	const log = {verbose: sinon.stub(), warn: sinon.stub()};
+	// Bundle detected via the ui5:IsBundle tag; the source must not be read (large bundles would
+	// otherwise be loaded into memory only to be discarded).
+	const getString = sinon.stub().resolves("should not be read");
+	const bundleResource = {
+		getProject() {
+			return {getResourceTagCollection() {
+				return {getTag: () => true};
+			}};
+		},
+		getString
+	};
+	const builtResources = {
+		all: {
+			byGlob() {
+				return [];
+			},
+			async byPath(filePath) {
+				return filePath.endsWith(".js") ? bundleResource : null;
+			}
+		}
+	};
+	const {instrumenterMiddleware} = t.context;
+	const middleware = await instrumenterMiddleware({log, middlewareUtil, builtResources});
+
+	t.plan(2);
+
+	await new Promise((resolve) => {
+		const res = {
+			end() {
+				t.fail("should not be called.");
+				resolve();
+			},
+			setHeader() {
+				t.fail("should not be called.");
+				resolve();
+			}
+		};
+		const next = (error) => {
+			t.falsy(error, "forwarded without error");
+			t.is(getString.callCount, 0, "a tagged bundle is not read into memory");
+			resolve();
+		};
+		middleware({
+			method: "GET",
+			url: "/resources/lib1/Control1.js?instrument=true"
+		}, res, next);
+	});
+});
+
+test("Instrument resources request: a reader error is logged and passed to next", async (t) => {
+	const log = {
+		verbose: sinon.stub(),
+		warn: sinon.stub(),
+		error: sinon.stub()
+	};
+	// Reading the matched resource fails; the error must not stall the server — it is logged and
+	// forwarded to the error-handling stack via next(err).
+	const builtResources = {
+		all: {
+			byGlob() {
+				return [];
+			},
+			async byPath(filePath) {
+				if (!filePath.endsWith(".js")) {
+					return null;
+				}
+				return {
+					async getString() {
+						throw new Error("reader boom");
+					}
+				};
+			}
+		}
+	};
+	const {instrumenterMiddleware} = t.context;
+	const middleware = await instrumenterMiddleware({log, middlewareUtil, builtResources});
+
+	t.plan(2);
+
+	await new Promise((resolve) => {
+		const res = {
+			end() {
+				t.fail("should not be called.");
+				resolve();
+			},
+			setHeader() {}
+		};
+		const next = (error) => {
+			t.is(error && error.message, "reader boom", "next is called with the reader error");
+			t.is(log.error.callCount, 1, "the failure is logged");
+			resolve();
+		};
+		middleware({
+			method: "GET",
+			url: "/resources/lib1/Control1.js?instrument=true"
+		}, res, next);
+	});
+});
+
+test("Instrument resources request for a missing -dbg resource logs verbose, not warn", async (t) => {
+	const log = {
+		verbose: sinon.stub(),
+		warn: sinon.stub()
+	};
+	// The runtime probes -dbg variants directly; a missing one is routine, so it must be logged at
+	// verbose level (not warn). Also exercises the reported-path derivation for a -dbg request.
+	const dbgMiddlewareUtil = {
+		getPathname() {
+			return "/resources/lib1/Control1-dbg.js";
+		}
+	};
+	const builtResources = {
+		all: {
+			byGlob() {
+				return [];
+			},
+			async byPath() {
+				return undefined;
+			}
+		}
+	};
+	const {instrumenterMiddleware} = t.context;
+	const middleware = await instrumenterMiddleware({log, middlewareUtil: dbgMiddlewareUtil, builtResources});
+
+	t.plan(3);
+
+	await new Promise((resolve) => {
+		const res = {
+			end() {
+				t.fail("should not be called.");
+				resolve();
+			},
+			setHeader() {
+				t.fail("should not be called.");
+				resolve();
+			}
+		};
+		const next = (error) => {
+			if (error) {
+				t.fail(error);
+			} else {
+				t.pass("Should be called without error.");
+			}
+			t.is(log.warn.callCount, 0, "a missing -dbg request is not warned");
+			t.true(log.verbose.getCalls().some((c) => String(c.args[0]).includes("not found")),
+				"the missing -dbg request is logged at verbose level");
+			resolve();
+		};
+		middleware({
+			method: "GET",
+			url: "/resources/lib1/Control1-dbg.js?instrument=true"
+		}, res, next);
+	});
+});
+
+test("Instrument resources request: an error without a stack is still logged and forwarded", async (t) => {
+	const log = {
+		verbose: sinon.stub(),
+		warn: sinon.stub(),
+		error: sinon.stub()
+	};
+	const builtResources = {
+		all: {
+			byGlob() {
+				return [];
+			},
+			async byPath(filePath) {
+				if (!filePath.endsWith(".js")) {
+					return null;
+				}
+				return {
+					async getString() {
+						throw {message: "stackless failure"}; // eslint-disable-line no-throw-literal
+					}
+				};
+			}
+		}
+	};
+	const {instrumenterMiddleware} = t.context;
+	const middleware = await instrumenterMiddleware({log, middlewareUtil, builtResources});
+
+	t.plan(2);
+
+	await new Promise((resolve) => {
+		const res = {
+			end() {
+				t.fail("should not be called.");
+				resolve();
+			},
+			setHeader() {}
+		};
+		const next = (error) => {
+			t.is(error && error.message, "stackless failure", "the error is forwarded to next");
+			t.is(log.error.callCount, 1, "the failure is logged even without a stack");
 			resolve();
 		};
 		middleware({
@@ -460,7 +785,7 @@ test("Instrument resources request with custom excludePatterns from configuratio
 		}
 	};
 	const {instrumenterMiddleware} = t.context;
-	const middleware = await instrumenterMiddleware({log, middlewareUtil, options, resources: customResources});
+	const middleware = await instrumenterMiddleware({log, middlewareUtil, options, builtResources: customResources});
 
 	t.plan(2);
 
@@ -531,7 +856,7 @@ test("Instrument resources request with custom excludePatterns overrides .librar
 		}
 	};
 	const {instrumenterMiddleware} = t.context;
-	const middleware = await instrumenterMiddleware({log, middlewareUtil, options, resources: customResources});
+	const middleware = await instrumenterMiddleware({log, middlewareUtil, options, builtResources: customResources});
 
 	t.plan(2);
 
@@ -608,7 +933,7 @@ test("Instrument multiple JS files in sequence", async (t) => {
 	const middleware = await instrumenterMiddleware({
 		log,
 		middlewareUtil: customMiddlewareUtil,
-		resources: customResources
+		builtResources: customResources
 	});
 
 	t.plan(9);
@@ -679,7 +1004,7 @@ test("Instrument resources request with excludePatterns set to null", async (t) 
 			excludePatterns: null
 		}
 	};
-	const middleware = await instrumenterMiddleware({log, middlewareUtil, options, resources});
+	const middleware = await instrumenterMiddleware({log, middlewareUtil, options, builtResources: resources});
 
 	t.plan(5);
 

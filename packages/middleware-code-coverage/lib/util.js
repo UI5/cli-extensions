@@ -1,6 +1,7 @@
 import xml2js from "xml2js";
 import {Buffer} from "node:buffer";
 import {readFile} from "node:fs/promises";
+import path from "node:path";
 
 /**
  * Returns the configuration for instrumenting the files
@@ -60,17 +61,178 @@ export function shouldInstrumentResource(request, excludePatterns) {
 		return false;
 	}
 	const {pathname, searchParams} = new URL(request.url, "http://localhost");
+	// Match exclude patterns against the runtime path: coverage runs request the unminified `-dbg`
+	// variant, but patterns (and the coverage report keys) are expressed in runtime terms, so a
+	// `-dbg` request must be normalized first — otherwise a filename-pinned exclude (e.g.
+	// "Control1.js" or /Control1\.js$/) would silently fail to match "Control1-dbg.js".
+	const runtimePath = fromDebugPath(pathname);
 	return (
-		pathname.endsWith(".js") &&
+		runtimePath.endsWith(".js") &&
 		!isFalsyValue(searchParams.get("instrument")) &&
 		!(excludePatterns || []).some((pattern) => {
 			if (pattern instanceof RegExp) {
-				return pattern.test(pathname);
+				return pattern.test(runtimePath);
 			} else {
-				return pathname.includes(pattern);
+				return runtimePath.includes(pattern);
 			}
 		})
 	);
+}
+
+// Mirrors the debug-variant naming applied by the UI5 builder's minifier task: the "-dbg" infix is
+// inserted before the (optional) UI5 file-type segment and the ".js" extension, e.g.
+// "App.controller.js" -> "App-dbg.controller.js", "Button.js" -> "Button-dbg.js".
+const debugFileRegex = /((?:\.view|\.fragment|\.controller|\.designtime|\.support)?\.js)$/;
+
+/**
+ * Returns the debug-variant path for a runtime resource path, as produced by the minifier task.
+ * Idempotent: a path that already is a debug variant is returned unchanged (so callers do not have
+ * to guard against producing a <code>-dbg-dbg</code> path).
+ *
+ * @public
+ * @param {string} pathname Runtime resource path (e.g. <code>/resources/ns/Button.js</code>)
+ * @returns {string} Debug-variant path (e.g. <code>/resources/ns/Button-dbg.js</code>)
+ */
+export function toDebugPath(pathname) {
+	if (isDebugPath(pathname)) {
+		return pathname;
+	}
+	return pathname.replace(debugFileRegex, "-dbg$1");
+}
+
+/**
+ * Returns the runtime (non-debug) path for a debug-variant resource path. Inverse of
+ * {@link toDebugPath}; a path that is not a debug variant is returned unchanged.
+ *
+ * @public
+ * @param {string} pathname Resource path
+ * @returns {string} Runtime path with any <code>-dbg</code> infix removed
+ */
+export function fromDebugPath(pathname) {
+	return pathname.replace(/-dbg((?:\.view|\.fragment|\.controller|\.designtime|\.support)?\.js)$/, "$1");
+}
+
+/**
+ * Whether a resource path already is a debug variant (carries the <code>-dbg</code> infix).
+ *
+ * @public
+ * @param {string} pathname Resource path
+ * @returns {boolean}
+ */
+export function isDebugPath(pathname) {
+	return /-dbg(?:\.view|\.fragment|\.controller|\.designtime|\.support)?\.js$/.test(pathname);
+}
+
+// Resource tag set by the builder's bundler tasks on bundle resources (STANDARD_TAGS.IsBundle in
+// @ui5/project). It is not available as an import here, so the tag name is referenced directly.
+const TAG_IS_BUNDLE = "ui5:IsBundle";
+
+/**
+ * Whether a built resource is a UI5 bundle (e.g. <code>*-preload.js</code>), read from its
+ * <code>ui5:IsBundle</code> resource tag (set by the builder's bundler tasks).
+ *
+ * INTERIM: the tag is not reachable through the Specification Version middleware interface
+ * (<code>MiddlewareUtil</code> exposes no tag access, unlike <code>TaskUtil#getTag</code> +
+ * <code>STANDARD_TAGS</code> on the build side). This reads it off the built resource's own project
+ * ({@link module:@ui5/fs.Resource#getProject}), which reaches past that interface. It should be
+ * replaced once UI5 CLI exposes a sanctioned middleware tag API (symmetric with TaskUtil).
+ *
+ * @public
+ * @param {module:@ui5/fs.Resource} resource Built resource
+ * @param {@ui5/logger/Logger} [log] Logger used to surface an unexpected tag-read failure
+ * @returns {boolean} True if the resource is tagged as a bundle
+ */
+export function isBundleResource(resource, log) {
+	try {
+		const project = resource.getProject?.();
+		const tagCollection = project?.getResourceTagCollection?.(resource, TAG_IS_BUNDLE);
+		return !!tagCollection?.getTag(resource, TAG_IS_BUNDLE);
+	} catch (err) {
+		// Reading the tag failed unexpectedly (e.g. @ui5/project API drift). Default to "not a
+		// bundle" so individual modules still get instrumented, but surface it: a bundle wrongly
+		// instrumented would corrupt coverage, and this log is the only trace of why.
+		log?.warn(`Could not determine bundle status for ${resource.getPath?.()}; ` +
+			`treating as non-bundle (${err.message})`);
+		return false;
+	}
+}
+
+// UI5 bundles begin with a `//@ui5-bundle` marker (emitted by the bundler tasks, recognized by the
+// ui5loader). Matched at the very start of the file.
+const bundleContentMarker = /^\s*\/\/@ui5-bundle/;
+
+/**
+ * Whether source code is a UI5 bundle, detected by its leading <code>//@ui5-bundle</code> marker.
+ *
+ * Content-based fallback to {@link module:@ui5/middleware-code-coverage/util.isBundleResource}: the
+ * <code>ui5:IsBundle</code> tag is absent, yet such a
+ * bundle must still never be instrumented (its concatenated, indexed source map would crash istanbul).
+ *
+ * @public
+ * @param {string} source Resource source code
+ * @returns {boolean} True if the source begins with the UI5 bundle marker
+ */
+export function isBundleSource(source) {
+	return typeof source === "string" && bundleContentMarker.test(source);
+}
+
+// Mirrors the UI5 builder's sourceMappingURL handling (@ui5/builder minifier.js / lbt/bundle/Builder.js):
+// match the reference the builder writes, and resolve a base64 data-URI inline map or a relative
+// external map. Other encodings and absolute URLs/paths are unsupported, matching the builder.
+const sourceMappingUrlPattern = /\/\/# sourceMappingURL=(\S+)\s*$/;
+const httpPattern = /^https?:\/\//i;
+
+/**
+ * Loads the input source map referenced by a resource's <code>sourceMappingURL</code> comment, so
+ * coverage can be attributed to the original source (e.g. a TypeScript project's <code>-dbg</code>
+ * source mapping back to the <code>.ts</code>).
+ *
+ * Handles a base64 data-URI inline map and a relative external map (resolved against the resource's
+ * path and read from the given reader). Returns <code>undefined</code> when there is no map, it is an
+ * unsupported reference, or it cannot be read or parsed — the caller then instruments without an input
+ * map (coverage stays keyed to the runtime path).
+ *
+ * @public
+ * @param {string} sourceCode The resource content to scan for a <code>sourceMappingURL</code>
+ * @param {string} sourcePathname The resource's request path (used to resolve a relative map URL)
+ * @param {module:@ui5/fs.AbstractReader} reader Reader to resolve an external map file
+ * @param {@ui5/logger/Logger} [log] Logger for surfacing an unsupported/unreadable map
+ * @returns {Promise<object|undefined>} The parsed source map, or <code>undefined</code>
+ */
+export async function loadInputSourceMap(sourceCode, sourcePathname, reader, log) {
+	const match = sourceCode.match(sourceMappingUrlPattern);
+	if (!match) {
+		return undefined;
+	}
+	const sourceMappingUrl = match[1];
+	try {
+		if (sourceMappingUrl.startsWith("data:")) {
+			const expectedTypeAndEncoding = "data:application/json;charset=utf-8;base64,";
+			if (!sourceMappingUrl.startsWith(expectedTypeAndEncoding)) {
+				log?.warn(`Unsupported source map data-URI encoding for ${sourcePathname}: ${sourceMappingUrl}`);
+				return undefined;
+			}
+			const base64 = sourceMappingUrl.slice(expectedTypeAndEncoding.length);
+			return JSON.parse(Buffer.from(base64, "base64").toString("utf8"));
+		}
+		if (httpPattern.test(sourceMappingUrl)) {
+			log?.warn(`Unsupported absolute source map URL for ${sourcePathname}: ${sourceMappingUrl}`);
+			return undefined;
+		}
+		if (path.posix.isAbsolute(sourceMappingUrl)) {
+			log?.warn(`Unsupported absolute source map path for ${sourcePathname}: ${sourceMappingUrl}`);
+			return undefined;
+		}
+		const mapPath = path.posix.join(path.posix.dirname(sourcePathname), sourceMappingUrl);
+		const mapResource = await reader.byPath(mapPath);
+		if (!mapResource) {
+			return undefined;
+		}
+		return JSON.parse(await mapResource.getString());
+	} catch (err) {
+		log?.verbose(`Ignoring unreadable source map for ${sourcePathname}: ${err.message}`);
+		return undefined;
+	}
 }
 
 /**

@@ -4,7 +4,13 @@ import {
 	getLatestSourceMap,
 	getLibraryCoverageExcludePatterns,
 	readJsonFile,
-	shouldInstrumentResource
+	shouldInstrumentResource,
+	toDebugPath,
+	fromDebugPath,
+	isDebugPath,
+	isBundleResource,
+	isBundleSource,
+	loadInputSourceMap
 } from "../../../lib/util.js";
 
 // Node.js itself tries to parse sourceMappingURLs in all JavaScript files. This is unwanted and might even lead to
@@ -354,6 +360,183 @@ test("shouldInstrumentResource: Resource flagged as instrumented, with no matchi
 	];
 	const toBeInstrumented = shouldInstrumentResource(request, excludePatterns);
 	t.true(toBeInstrumented);
+});
+
+test("toDebugPath / fromDebugPath / isDebugPath: round-trip and file types", (t) => {
+	const cases = [
+		["/resources/ns/Button.js", "/resources/ns/Button-dbg.js"],
+		["/resources/ns/App.controller.js", "/resources/ns/App-dbg.controller.js"],
+		["/resources/ns/Main.view.js", "/resources/ns/Main-dbg.view.js"],
+		["/resources/ns/My.fragment.js", "/resources/ns/My-dbg.fragment.js"],
+	];
+	for (const [runtime, dbg] of cases) {
+		t.is(toDebugPath(runtime), dbg, `toDebugPath(${runtime})`);
+		t.is(fromDebugPath(dbg), runtime, `fromDebugPath(${dbg})`);
+		t.false(isDebugPath(runtime), `isDebugPath(${runtime})`);
+		t.true(isDebugPath(dbg), `isDebugPath(${dbg})`);
+	}
+});
+
+test("toDebugPath: idempotent for paths that already are debug variants", (t) => {
+	// Guards against producing a `-dbg-dbg` path; callers may pass an already-debug path.
+	t.is(toDebugPath("/resources/ns/Button-dbg.js"), "/resources/ns/Button-dbg.js");
+	t.is(toDebugPath("/resources/ns/App-dbg.controller.js"), "/resources/ns/App-dbg.controller.js");
+	t.is(toDebugPath(toDebugPath("/resources/ns/Button.js")), "/resources/ns/Button-dbg.js");
+});
+
+test("fromDebugPath: returns a non-debug path unchanged", (t) => {
+	t.is(fromDebugPath("/resources/ns/Button.js"), "/resources/ns/Button.js");
+});
+
+test("shouldInstrumentResource: runtime-name excludes still apply to -dbg requests (string)", (t) => {
+	// Coverage runs request the -dbg variant; a filename-pinned exclude written in runtime terms
+	// must still match it.
+	const request = getMockedRequest("/resources/lib1/Control1-dbg.js", {instrument: "true"});
+	t.false(shouldInstrumentResource(request, ["Control1.js"]), "excluded despite -dbg infix");
+	t.true(shouldInstrumentResource(request, ["Other.js"]), "non-matching exclude still instruments");
+});
+
+test("shouldInstrumentResource: runtime-name excludes still apply to -dbg requests (regexp)", (t) => {
+	const request = getMockedRequest("/resources/lib1/Control1-dbg.js", {instrument: "true"});
+	t.false(shouldInstrumentResource(request, [/Control1\.js$/]), "excluded despite -dbg infix");
+	t.true(shouldInstrumentResource(request, [/Other\.js$/]), "non-matching exclude still instruments");
+});
+
+test("shouldInstrumentResource: -dbg request without an exclude is instrumented", (t) => {
+	const request = getMockedRequest("/resources/lib1/Control1-dbg.js", {instrument: "true"});
+	t.true(shouldInstrumentResource(request, []));
+});
+
+test("isBundleResource: true when the ui5:IsBundle tag is set", (t) => {
+	const resource = {
+		getPath: () => "/resources/x/library-preload.js",
+		getProject: () => ({
+			getResourceTagCollection: () => ({getTag: () => true})
+		})
+	};
+	t.true(isBundleResource(resource));
+});
+
+test("isBundleResource: false when the resource has no project", (t) => {
+	t.false(isBundleResource({getProject: () => undefined}));
+});
+
+test("isBundleResource: false and warns when the tag read throws", (t) => {
+	const warnings = [];
+	const log = {warn: (msg) => warnings.push(msg)};
+	const resource = {
+		getPath: () => "/resources/x/Thing.js",
+		getProject: () => ({
+			getResourceTagCollection: () => {
+				throw new Error("boom");
+			}
+		})
+	};
+	t.false(isBundleResource(resource, log));
+	t.is(warnings.length, 1, "the failure is surfaced");
+	t.true(warnings[0].includes("/resources/x/Thing.js"), "the warning names the resource");
+});
+
+test("isBundleSource: true for the leading //@ui5-bundle marker", (t) => {
+	t.true(isBundleSource("//@ui5-bundle covered/lib/library-preload.js\nsap.ui.predefine(\"x\",[]);"));
+	t.true(isBundleSource("\n\t//@ui5-bundle x"), "tolerates leading whitespace");
+});
+
+test("isBundleSource: false for ordinary module source", (t) => {
+	t.false(isBundleSource("sap.ui.define([], function () {});"));
+	t.false(isBundleSource("// a comment\n//@ui5-bundle later"), "the marker must be at the start");
+	t.false(isBundleSource(undefined), "non-string input is not a bundle");
+});
+
+test("loadInputSourceMap: no sourceMappingURL returns undefined", async (t) => {
+	const reader = {byPath() {
+		throw new Error("reader should not be consulted when there is no sourceMappingURL");
+	}};
+	t.is(await loadInputSourceMap("var x = 1;\n", "/resources/ns/Thing-dbg.js", reader), undefined);
+});
+
+test("loadInputSourceMap: external map is resolved relative to the source directory", async (t) => {
+	const map = {version: 3, sources: ["Thing.ts"], mappings: "AAAA"};
+	const requested = [];
+	const reader = {
+		async byPath(resourcePath) {
+			requested.push(resourcePath);
+			return {async getString() {
+				return JSON.stringify(map);
+			}};
+		}
+	};
+	const code = `var x = 1;\n${SOURCE_MAPPING_URL}=Thing-dbg.js.map`;
+	const result = await loadInputSourceMap(code, "/resources/ns/Thing-dbg.js", reader);
+
+	t.deepEqual(result, map);
+	t.deepEqual(requested, ["/resources/ns/Thing-dbg.js.map"],
+		"the map URL is resolved against the source's directory");
+});
+
+test("loadInputSourceMap: inline base64 data-URI map is decoded without a reader", async (t) => {
+	const map = {version: 3, sources: ["Thing.ts"], mappings: "AAAA"};
+	const base64 = Buffer.from(JSON.stringify(map), "utf8").toString("base64");
+	const code = `var x = 1;\n${SOURCE_MAPPING_URL}=data:application/json;charset=utf-8;base64,${base64}`;
+	const reader = {byPath() {
+		throw new Error("reader should not be consulted for an inline map");
+	}};
+	t.deepEqual(await loadInputSourceMap(code, "/resources/ns/Thing-dbg.js", reader), map);
+});
+
+test("loadInputSourceMap: an unparseable map returns undefined and is not fatal", async (t) => {
+	const reader = {async byPath() {
+		return {async getString() {
+			return "{ not valid json";
+		}};
+	}};
+	const code = `var x = 1;\n${SOURCE_MAPPING_URL}=Thing-dbg.js.map`;
+	const warnings = [];
+	const log = {verbose: (msg) => warnings.push(msg)};
+
+	t.is(await loadInputSourceMap(code, "/resources/ns/Thing-dbg.js", reader, log), undefined);
+	t.is(warnings.length, 1, "the failure is surfaced via log.verbose");
+});
+
+test("loadInputSourceMap: an unsupported data-URI encoding is ignored with a warning", async (t) => {
+	const reader = {byPath() {
+		throw new Error("reader should not be consulted for a data-URI");
+	}};
+	const code = `var x = 1;\n${SOURCE_MAPPING_URL}=data:application/json;charset=utf-8,notbase64`;
+	const warnings = [];
+	const log = {warn: (msg) => warnings.push(msg)};
+	t.is(await loadInputSourceMap(code, "/resources/ns/Thing-dbg.js", reader, log), undefined);
+	t.is(warnings.length, 1);
+});
+
+test("loadInputSourceMap: an absolute URL reference is ignored with a warning", async (t) => {
+	const reader = {byPath() {
+		throw new Error("reader should not be consulted for an absolute URL");
+	}};
+	const code = `var x = 1;\n${SOURCE_MAPPING_URL}=https://example.com/Thing.js.map`;
+	const warnings = [];
+	const log = {warn: (msg) => warnings.push(msg)};
+	t.is(await loadInputSourceMap(code, "/resources/ns/Thing-dbg.js", reader, log), undefined);
+	t.is(warnings.length, 1);
+});
+
+test("loadInputSourceMap: an absolute path reference is ignored with a warning", async (t) => {
+	const reader = {byPath() {
+		throw new Error("reader should not be consulted for an absolute path");
+	}};
+	const code = `var x = 1;\n${SOURCE_MAPPING_URL}=/resources/ns/Thing.js.map`;
+	const warnings = [];
+	const log = {warn: (msg) => warnings.push(msg)};
+	t.is(await loadInputSourceMap(code, "/resources/ns/Thing-dbg.js", reader, log), undefined);
+	t.is(warnings.length, 1);
+});
+
+test("loadInputSourceMap: a missing external map returns undefined", async (t) => {
+	const reader = {async byPath() {
+		return undefined;
+	}};
+	const code = `var x = 1;\n${SOURCE_MAPPING_URL}=Thing-dbg.js.map`;
+	t.is(await loadInputSourceMap(code, "/resources/ns/Thing-dbg.js", reader), undefined);
 });
 
 

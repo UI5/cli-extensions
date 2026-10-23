@@ -4,7 +4,13 @@ import {
 	shouldInstrumentResource,
 	getLatestSourceMap,
 	readJsonFile,
-	getLibraryCoverageExcludePatterns
+	getLibraryCoverageExcludePatterns,
+	toDebugPath,
+	fromDebugPath,
+	isDebugPath,
+	isBundleResource,
+	isBundleSource,
+	loadInputSourceMap
 } from "./util.js";
 import {createInstrumenter} from "istanbul-lib-instrument";
 import reportCoverage from "./coverage-reporter.js";
@@ -17,6 +23,16 @@ import {promisify} from "node:util";
 /**
  * Custom middleware to instrument JS files with Istanbul.
  *
+ * Coverage runs against the build output (<code>builtResources</code>). The UI5 runtime loads the
+ * covered modules individually (as their unminified <code>-dbg</code> variant) instead of from a
+ * bundle: it derives which modules to load individually (<code>ignoreBundledResources</code>) from the
+ * coverage configuration (the cover-only/cover-never filter), so no manual flag is required. This
+ * middleware instruments each requested <code>?instrument</code> resource — preferring the unminified
+ * <code>-dbg</code> source — and reports it under the runtime path. Bundles are never instrumented
+ * (instrumenting a concatenated bundle would corrupt coverage, and its indexed source map would crash
+ * the instrumenter); they are detected via their <code>ui5:IsBundle</code> resource tag or a leading
+ * <code>//@ui5-bundle</code> marker and served verbatim by the following middleware.
+ *
  * @param {object} parameters Parameters
  * @param {@ui5/logger/Logger} parameters.log
  *      Logger instance for use in the custom middleware.
@@ -24,17 +40,18 @@ import {promisify} from "node:util";
  * @param {object} parameters.middlewareUtil Specification version dependent interface to a
  * 										[MiddlewareUtil]{https://ui5.github.io/cli/v3/api/@ui5_server_middleware_MiddlewareUtil.html} instance
  * @param {object} parameters.options Options
- * @param {string} [parameters.options.configuration] Custom server middleware configuration if given in ui5.yaml
- * @param {object} parameters.resources Resource collections
- * @param {module:@ui5/fs.AbstractReader} parameters.resources.all Reader or Collection to read resources of the
+ * @param {object} [parameters.options.configuration] Custom server middleware configuration if given in ui5.yaml
+ * @param {object} parameters.builtResources Readers for accessing the build output.
+ * 										Only provided for Specification Version 5.0 and later.
+ * @param {module:@ui5/fs.AbstractReader} parameters.builtResources.all Reader to access the build output of the
  * 										root project and its dependencies
- * @param {module:@ui5/fs.AbstractReader} parameters.resources.rootProject Reader or Collection to read resources of
- * 										the project the server is started in
- * @param {module:@ui5/fs.AbstractReader} parameters.resources.dependencies Reader or Collection to read resources of
- * 										the projects dependencies
+ * @param {module:@ui5/fs.AbstractReader} parameters.builtResources.rootProject Reader to access the build output of
+ * 										the root project
+ * @param {module:@ui5/fs.AbstractReader} parameters.builtResources.dependencies Reader to access the build output of
+ * 										the project's dependencies
  * @returns {Function} Middleware function to use
  */
-export default async function({log, middlewareUtil, options={}, resources}) {
+export default async function({log, middlewareUtil, options={}, builtResources}) {
 	const config = await createInstrumentationConfig(options.configuration);
 	const {
 		report: reporterConfig,
@@ -46,7 +63,10 @@ export default async function({log, middlewareUtil, options={}, resources}) {
 
 	// Instrumenter instance
 	const instrumenter = createInstrumenter(instrumenterConfig);
-	const instrument = promisify(instrumenter.instrument.bind(instrumenter));
+	// Switch callback parameters to match promisify signature
+	const callbackStyleInstrumenter = (code, filename, inputSourceMap, callback) =>
+		instrumenter.instrument(code, filename, callback, inputSourceMap);
+	const instrument = promisify(callbackStyleInstrumenter);
 
 	const router = new Router();
 
@@ -70,7 +90,7 @@ export default async function({log, middlewareUtil, options={}, resources}) {
 			const reportData = await reportCoverage(
 				req.body ?? {},
 				config,
-				resources,
+				builtResources,
 				log
 			);
 
@@ -109,36 +129,89 @@ export default async function({log, middlewareUtil, options={}, resources}) {
 	let excludePatterns;
 
 	router.use(async (req, res, next) => {
-		// Lazy initialize exclude patterns
-		if (excludePatterns === undefined) {
-			// Custom patterns take precedence over .library defined patterns (also when set to null)
-			if (generalConfig.excludePatterns !== undefined) {
-				excludePatterns = generalConfig.excludePatterns;
-			} else {
-				// Read patterns from .library files, this should only be done if needed and only once
-				excludePatterns = await getLibraryCoverageExcludePatterns(resources.all);
+		try {
+			// Lazy initialize exclude patterns
+			if (excludePatterns === undefined) {
+				// Custom patterns take precedence over .library defined patterns (also when set to null)
+				if (generalConfig.excludePatterns !== undefined) {
+					excludePatterns = generalConfig.excludePatterns;
+				} else {
+					// Read patterns from .library files, this should only be done if needed and only once
+					excludePatterns = await getLibraryCoverageExcludePatterns(builtResources.all);
+				}
 			}
+
+			// Only instrument JS resources the client opts into via ?instrument (and which are not excluded).
+			if (!shouldInstrumentResource(req, excludePatterns)) {
+				next();
+				return;
+			}
+
+			const pathname = middlewareUtil.getPathname(req);
+			log.verbose(`handling ${pathname}...`);
+
+			// Report against the runtime path even when the browser requested the -dbg variant directly
+			// (as it does when loading covered modules individually), so coverage keys line up with what
+			// the client selects and what the reporter reads.
+			const reportedPath = isDebugPath(pathname) ? fromDebugPath(pathname) : pathname;
+
+			// Prefer the unminified -dbg source for faithful per-line coverage; fall back to the runtime
+			// file when no -dbg variant exists (minify task disabled, or the -dbg was requested directly).
+			let sourcePath = toDebugPath(reportedPath);
+			let matchedResource = await builtResources.all.byPath(sourcePath);
+			if (!matchedResource) {
+				sourcePath = reportedPath;
+				matchedResource = await builtResources.all.byPath(reportedPath);
+			}
+
+			if (!matchedResource) {
+				// A missing -dbg request is routine (the runtime probes it); a missing runtime file is not.
+				log[isDebugPath(pathname) ? "verbose" : "warn"](`${pathname} not found`);
+				next();
+				return;
+			}
+
+			// Never instrument bundles (e.g. *-preload.js): the concatenated source corrupts coverage and
+			// its indexed source map crashes istanbul; they are served verbatim by the next middleware.
+			// Detect via the `ui5:IsBundle` tag, else the `//@ui5-bundle` marker.
+			// The marker needs the source, so read it only when the tag is absent (a tagged,
+			// often large, bundle is never read into memory).
+			const taggedBundle = isBundleResource(matchedResource, log);
+			const source = taggedBundle ? undefined : await matchedResource.getString();
+			if (taggedBundle || isBundleSource(source)) {
+				log.verbose(`${pathname} is a bundle; serving without instrumentation`);
+				next();
+				return;
+			}
+
+			// Feed istanbul the instrumented source's own source map when present (e.g. a TypeScript
+			// project's -dbg source mapping back to the original .ts), so coverage is attributed to the
+			// original source. Resolved from the source's sourceMappingURL (inline data-URI or a sibling
+			// file); absent or unparseable -> instrumented without a map (coverage keyed to the runtime
+			// path). Passed as a plain object: UI5 per-module -dbg maps are flat (not indexed), and
+			// istanbul expects a plain object — a non-plain instance would be spread-mangled internally.
+			const inputSourceMap = await loadInputSourceMap(source, sourcePath, builtResources.all, log);
+
+			sendInstrumented(res, await instrument(source, reportedPath, inputSourceMap), reportedPath);
+		} catch (err) {
+			// A reader rejection or an unparseable source (istanbul throwing) must not stall the dev
+			// server. Log the cause and defer to the error-handling stack.
+			log.error(`Failed to instrument ${req.url}: ${err.message}`);
+			if (err.stack) {
+				log.verbose(err.stack);
+			}
+			next(err);
 		}
+	});
 
-		// Skip files which should not be instrumented
-		if (!shouldInstrumentResource(req, excludePatterns)) {
-			next();
-			return;
-		}
-
-		const pathname = middlewareUtil.getPathname(req);
-		log.verbose(`handling ${pathname}...`);
-		const matchedResource = await resources.all.byPath(pathname);
-
-		if (!matchedResource) {
-			log.warn(`${pathname} not found`);
-			next();
-			return;
-		}
-
-		const source = await matchedResource.getString();
-		let instrumentedSource = await instrument(source, pathname);
-
+	/**
+	 * Sends instrumented source (with an embedded source map when enabled) as a JS response.
+	 *
+	 * @param {object} res Response
+	 * @param {string} instrumentedSource Instrumented code
+	 * @param {string} pathname Path used for logging
+	 */
+	function sendInstrumented(res, instrumentedSource, pathname) {
 		log.verbose(`...${pathname} instrumented!`);
 
 		// Append sourceMap
@@ -151,7 +224,7 @@ export default async function({log, middlewareUtil, options={}, resources}) {
 		// send out instrumented source + source map
 		res.setHeader("Content-Type", "text/javascript");
 		res.end(instrumentedSource);
-	});
+	}
 
 	return router;
 }

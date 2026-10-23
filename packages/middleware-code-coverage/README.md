@@ -13,11 +13,13 @@ You find this middleware in action in the [OpenUI5 Sample App](https://github.co
 
 ## Requirements
 
-This middleware requires UI5 CLI v3 and is meant for UI5 1.113 and above.
+This middleware requires UI5 CLI v5 (currently still in development) and is meant for UI5 1.113 and above. It relies on the `builtResources` parameter (available for custom middleware defining Specification Version 5.0 and later) to access the build output.
 
-## Limitations
+**Note:** To obtain faithful per-file coverage for code that would otherwise be delivered via a bundle (e.g. `*-preload.js`), load the coverage test page with `sap-ui-debug="<cover globs>"` (the string/glob form, which does not reboot the page). The UI5 runtime then requests the covered modules individually as their unminified `-dbg` sources, which this middleware instruments and reports under the runtime path.
 
-Note that this middleware is currently not compatible with TypeScript based projects, see [TypeScript support #189](https://github.com/UI5/cli-extensions/issues/189).
+## TypeScript support
+
+TypeScript-based projects are supported. When a module is transpiled to JavaScript and ships a source map, the middleware instruments the transpiled JavaScript and remaps the collected coverage back onto the original `.ts` source in the report.
 
 ## Install
 

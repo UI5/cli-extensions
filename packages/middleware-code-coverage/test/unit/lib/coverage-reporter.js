@@ -255,3 +255,121 @@ test.serial("Report Coverage: Fronted config for watermarks- overwrite just some
 	esmock.purge(libReport);
 	esmock.purge(coverageReporter);
 });
+
+test("Report Coverage: remaps through an embedded input source map to the original source", async (t) => {
+	const {coverageReporter} = t.context;
+
+	// A file instrumented from a TypeScript project's transpiled -dbg source carries an input source
+	// map back to the original .ts in its coverage data. The reporter must remap coverage onto that
+	// .ts and render it from the map's embedded sourcesContent (not the build output).
+	const tsCoverage = {
+		coverage: {
+			"/resources/covered/lib/Thing.js": {
+				path: "/resources/covered/lib/Thing.js",
+				statementMap: {"0": {start: {line: 1, column: 0}, end: {line: 1, column: 20}}},
+				fnMap: {},
+				branchMap: {},
+				s: {"0": 1},
+				f: {},
+				b: {},
+				inputSourceMap: {
+					version: 3,
+					file: "Thing.js",
+					sources: ["Thing.ts"],
+					sourcesContent: ["export const greet = 1;\n"],
+					names: [],
+					mappings: "AAAA" // generated (1,0) -> Thing.ts (1,0)
+				}
+			}
+		}
+	};
+
+	// Source for the remapped .ts must be read from the sandboxed build output — never the raw
+	// filesystem — since keys originate from client-posted coverage data.
+	const requested = [];
+	const builtResources = {
+		all: {
+			byPath(resourcePath) {
+				requested.push(resourcePath);
+				return {
+					async getString() {
+						return "export const greet = 1;\n";
+					}
+				};
+			}
+		}
+	};
+
+	const config = await createInstrumentationConfig();
+	const report = await coverageReporter(tsCoverage, config, builtResources);
+
+	t.deepEqual(report.coverageMap, ["/resources/covered/lib/Thing.ts"],
+		"coverage is remapped from the runtime .js path to the original .ts source");
+	t.true(requested.includes("/resources/covered/lib/Thing.ts"),
+		"the remapped .ts source is read from the sandboxed builtResources, not the filesystem");
+});
+
+test("Report Coverage: a -dbg coverage key is read directly, without a second -dbg lookup", async (t) => {
+	const {coverageReporter} = t.context;
+	// When the posted coverage is already keyed by a -dbg path, the reporter reads that resource
+	// directly — the "prefer -dbg" lookup is skipped because the key is the -dbg variant itself.
+	const dbgCoverage = {
+		coverage: {
+			"/resources/Control1-dbg.js": {
+				...coverageData.coverage["/resources/Control1.js"],
+				path: "/resources/Control1-dbg.js"
+			}
+		}
+	};
+	const requested = [];
+	const builtResources = {
+		all: {
+			byPath(resourcePath) {
+				requested.push(resourcePath);
+				return mockedResource.all.byPath(resourcePath);
+			}
+		}
+	};
+
+	const config = await createInstrumentationConfig();
+	const report = await coverageReporter(dbgCoverage, config, builtResources);
+
+	t.deepEqual(report.coverageMap, ["/resources/Control1-dbg.js"],
+		"a -dbg key without an input source map stays keyed to the -dbg path");
+	t.deepEqual(requested, ["/resources/Control1-dbg.js"],
+		"the -dbg key is read directly; no toDebugPath lookup is attempted");
+});
+
+test("Report Coverage: a native Windows remapped key is normalized to a POSIX runtime path", async (t) => {
+	const {coverageReporter} = t.context;
+	// istanbul-lib-source-maps resolves source-map sources with the native path module, so on Windows a
+	// remapped key arrives as a native absolute path. The reporter must normalize it back to the POSIX
+	// runtime path so keys and build-output lookups are identical across platforms. Using a literal
+	// Windows path keeps this test deterministic on every OS.
+	const windowsKey = "D:\\resources\\covered\\lib\\Thing.ts";
+	const winCoverage = {
+		coverage: {
+			[windowsKey]: {
+				...coverageData.coverage["/resources/Control1.js"],
+				path: windowsKey
+			}
+		}
+	};
+	const requested = [];
+	const builtResources = {
+		all: {
+			byPath(resourcePath) {
+				requested.push(resourcePath);
+				return mockedResource.all.byPath(resourcePath);
+			}
+		}
+	};
+
+	const config = await createInstrumentationConfig();
+	const report = await coverageReporter(winCoverage, config, builtResources);
+
+	t.deepEqual(report.coverageMap, ["/resources/covered/lib/Thing.ts"],
+		"the native Windows path is normalized to a POSIX runtime path");
+	t.true(requested.includes("/resources/covered/lib/Thing.ts"),
+		"the normalized POSIX key is used for the build-output lookup");
+});
