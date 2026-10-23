@@ -165,7 +165,7 @@ const bundleContentMarker = /^\s*\/\/@ui5-bundle/;
  * Whether source code is a UI5 bundle, detected by its leading <code>//@ui5-bundle</code> marker.
  *
  * Content-based fallback to {@link module:@ui5/middleware-code-coverage/util.isBundleResource}: the
- * <code>ui5:IsBundle</code> tag is absent when the <code>minify</code> task is skipped, yet such a
+ * <code>ui5:IsBundle</code> tag is absent, yet such a
  * bundle must still never be instrumented (its concatenated, indexed source map would crash istanbul).
  *
  * @public
@@ -176,43 +176,54 @@ export function isBundleSource(source) {
 	return typeof source === "string" && bundleContentMarker.test(source);
 }
 
-// Matches `//# sourceMappingURL=` (and the legacy `//@`) comments, capturing the URL.
-const sourceMappingURLRegex = /\/\/[#@]\s*sourceMappingURL=(.+?)\s*$/gm;
+// Mirrors the UI5 builder's sourceMappingURL handling (@ui5/builder minifier.js / lbt/bundle/Builder.js):
+// match the reference the builder writes, and resolve a base64 data-URI inline map or a relative
+// external map. Other encodings and absolute URLs/paths are unsupported, matching the builder.
+const sourceMappingUrlPattern = /\/\/# sourceMappingURL=(\S+)\s*$/;
+const httpPattern = /^https?:\/\//i;
 
 /**
  * Loads the input source map referenced by a resource's <code>sourceMappingURL</code> comment, so
  * coverage can be attributed to the original source (e.g. a TypeScript project's <code>-dbg</code>
  * source mapping back to the <code>.ts</code>).
  *
- * Handles an inline data-URI map (base64 or URI-encoded) and an external map file (resolved relative
- * to the resource's own path and read from the given reader). Returns <code>undefined</code> when
- * there is no map, or it cannot be read or parsed — the caller then instruments without an input map
- * (coverage stays keyed to the runtime path). The last <code>sourceMappingURL</code> wins, per spec.
+ * Handles a base64 data-URI inline map and a relative external map (resolved against the resource's
+ * path and read from the given reader). Returns <code>undefined</code> when there is no map, it is an
+ * unsupported reference, or it cannot be read or parsed — the caller then instruments without an input
+ * map (coverage stays keyed to the runtime path).
  *
  * @public
  * @param {string} sourceCode The resource content to scan for a <code>sourceMappingURL</code>
  * @param {string} sourcePathname The resource's request path (used to resolve a relative map URL)
  * @param {module:@ui5/fs.AbstractReader} reader Reader to resolve an external map file
- * @param {@ui5/logger/Logger} [log] Logger for surfacing an unreadable/unparseable map
+ * @param {@ui5/logger/Logger} [log] Logger for surfacing an unsupported/unreadable map
  * @returns {Promise<object|undefined>} The parsed source map, or <code>undefined</code>
  */
 export async function loadInputSourceMap(sourceCode, sourcePathname, reader, log) {
-	const matches = [...sourceCode.matchAll(sourceMappingURLRegex)];
-	if (matches.length === 0) {
+	const match = sourceCode.match(sourceMappingUrlPattern);
+	if (!match) {
 		return undefined;
 	}
-	const url = matches[matches.length - 1][1].trim();
+	const sourceMappingUrl = match[1];
 	try {
-		const base64 = url.match(/^data:application\/json[^,]*;base64,(.*)$/);
-		if (base64) {
-			return JSON.parse(Buffer.from(base64[1], "base64").toString("utf8"));
+		if (sourceMappingUrl.startsWith("data:")) {
+			const expectedTypeAndEncoding = "data:application/json;charset=utf-8;base64,";
+			if (!sourceMappingUrl.startsWith(expectedTypeAndEncoding)) {
+				log?.warn(`Unsupported source map data-URI encoding for ${sourcePathname}: ${sourceMappingUrl}`);
+				return undefined;
+			}
+			const base64 = sourceMappingUrl.slice(expectedTypeAndEncoding.length);
+			return JSON.parse(Buffer.from(base64, "base64").toString("utf8"));
 		}
-		const dataURI = url.match(/^data:application\/json[^,]*,(.*)$/);
-		if (dataURI) {
-			return JSON.parse(decodeURIComponent(dataURI[1]));
+		if (httpPattern.test(sourceMappingUrl)) {
+			log?.warn(`Unsupported absolute source map URL for ${sourcePathname}: ${sourceMappingUrl}`);
+			return undefined;
 		}
-		// External map file: resolve relative to the resource's own directory and read it.
-		const mapPath = path.posix.resolve(path.posix.dirname(sourcePathname), url);
+		if (path.posix.isAbsolute(sourceMappingUrl)) {
+			log?.warn(`Unsupported absolute source map path for ${sourcePathname}: ${sourceMappingUrl}`);
+			return undefined;
+		}
+		const mapPath = path.posix.join(path.posix.dirname(sourcePathname), sourceMappingUrl);
 		const mapResource = await reader.byPath(mapPath);
 		if (!mapResource) {
 			return undefined;

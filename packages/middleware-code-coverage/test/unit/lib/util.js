@@ -498,14 +498,37 @@ test("loadInputSourceMap: an unparseable map returns undefined and is not fatal"
 	t.is(warnings.length, 1, "the failure is surfaced via log.verbose");
 });
 
-test("loadInputSourceMap: inline data-URI map (not base64) is decoded without a reader", async (t) => {
-	const map = {version: 3, sources: ["Thing.ts"], mappings: "AAAA"};
-	const code = `var x = 1;\n${SOURCE_MAPPING_URL}=data:application/json;charset=utf-8,` +
-		encodeURIComponent(JSON.stringify(map));
+test("loadInputSourceMap: an unsupported data-URI encoding is ignored with a warning", async (t) => {
 	const reader = {byPath() {
-		throw new Error("reader should not be consulted for an inline map");
+		throw new Error("reader should not be consulted for a data-URI");
 	}};
-	t.deepEqual(await loadInputSourceMap(code, "/resources/ns/Thing-dbg.js", reader), map);
+	const code = `var x = 1;\n${SOURCE_MAPPING_URL}=data:application/json;charset=utf-8,notbase64`;
+	const warnings = [];
+	const log = {warn: (msg) => warnings.push(msg)};
+	t.is(await loadInputSourceMap(code, "/resources/ns/Thing-dbg.js", reader, log), undefined);
+	t.is(warnings.length, 1);
+});
+
+test("loadInputSourceMap: an absolute URL reference is ignored with a warning", async (t) => {
+	const reader = {byPath() {
+		throw new Error("reader should not be consulted for an absolute URL");
+	}};
+	const code = `var x = 1;\n${SOURCE_MAPPING_URL}=https://example.com/Thing.js.map`;
+	const warnings = [];
+	const log = {warn: (msg) => warnings.push(msg)};
+	t.is(await loadInputSourceMap(code, "/resources/ns/Thing-dbg.js", reader, log), undefined);
+	t.is(warnings.length, 1);
+});
+
+test("loadInputSourceMap: an absolute path reference is ignored with a warning", async (t) => {
+	const reader = {byPath() {
+		throw new Error("reader should not be consulted for an absolute path");
+	}};
+	const code = `var x = 1;\n${SOURCE_MAPPING_URL}=/resources/ns/Thing.js.map`;
+	const warnings = [];
+	const log = {warn: (msg) => warnings.push(msg)};
+	t.is(await loadInputSourceMap(code, "/resources/ns/Thing-dbg.js", reader, log), undefined);
+	t.is(warnings.length, 1);
 });
 
 test("loadInputSourceMap: a missing external map returns undefined", async (t) => {

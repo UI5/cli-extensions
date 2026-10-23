@@ -554,6 +554,57 @@ test("Instrument resources request for a bundle is served verbatim, not instrume
 	});
 });
 
+test("Instrument resources request for a tag-detected bundle skips reading the source", async (t) => {
+	const log = {verbose: sinon.stub(), warn: sinon.stub()};
+	// Bundle detected via the ui5:IsBundle tag; the source must not be read (large bundles would
+	// otherwise be loaded into memory only to be discarded).
+	const getString = sinon.stub().resolves("should not be read");
+	const bundleResource = {
+		getProject() {
+			return {getResourceTagCollection() {
+				return {getTag: () => true};
+			}};
+		},
+		getString
+	};
+	const builtResources = {
+		all: {
+			byGlob() {
+				return [];
+			},
+			async byPath(filePath) {
+				return filePath.endsWith(".js") ? bundleResource : null;
+			}
+		}
+	};
+	const {instrumenterMiddleware} = t.context;
+	const middleware = await instrumenterMiddleware({log, middlewareUtil, builtResources});
+
+	t.plan(2);
+
+	await new Promise((resolve) => {
+		const res = {
+			end() {
+				t.fail("should not be called.");
+				resolve();
+			},
+			setHeader() {
+				t.fail("should not be called.");
+				resolve();
+			}
+		};
+		const next = (error) => {
+			t.falsy(error, "forwarded without error");
+			t.is(getString.callCount, 0, "a tagged bundle is not read into memory");
+			resolve();
+		};
+		middleware({
+			method: "GET",
+			url: "/resources/lib1/Control1.js?instrument=true"
+		}, res, next);
+	});
+});
+
 test("Instrument resources request: a reader error is logged and passed to next", async (t) => {
 	const log = {
 		verbose: sinon.stub(),

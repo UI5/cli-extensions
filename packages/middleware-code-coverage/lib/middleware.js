@@ -25,7 +25,7 @@ import {promisify} from "node:util";
  *
  * Coverage runs against the build output (<code>builtResources</code>). The UI5 runtime loads the
  * covered modules individually (as their unminified <code>-dbg</code> variant) instead of from a
- * bundle: it derives which modules to load un-bundled (<code>ignoreBundledResources</code>) from the
+ * bundle: it derives which modules to load individually (<code>ignoreBundledResources</code>) from the
  * coverage configuration (the cover-only/cover-never filter), so no manual flag is required. This
  * middleware instruments each requested <code>?instrument</code> resource — preferring the unminified
  * <code>-dbg</code> source — and reports it under the runtime path. Bundles are never instrumented
@@ -151,7 +151,7 @@ export default async function({log, middlewareUtil, options={}, builtResources})
 			log.verbose(`handling ${pathname}...`);
 
 			// Report against the runtime path even when the browser requested the -dbg variant directly
-			// (as it does when loading covered modules un-bundled), so coverage keys line up with what
+			// (as it does when loading covered modules individually), so coverage keys line up with what
 			// the client selects and what the reporter reads.
 			const reportedPath = isDebugPath(pathname) ? fromDebugPath(pathname) : pathname;
 
@@ -171,14 +171,14 @@ export default async function({log, middlewareUtil, options={}, builtResources})
 				return;
 			}
 
-			// Never instrument bundles (e.g. *-preload.js): instrumenting the concatenated bundle
-			// would corrupt coverage (and its indexed source map would crash istanbul). Bundles are
-			// served verbatim by the following middleware; coverage comes from the individual modules
-			// the runtime loads un-bundled instead. Detected via the resource's `ui5:IsBundle` tag,
-			// falling back to the `//@ui5-bundle` content marker — the tag is absent when the minify
-			// task is skipped, but the marker is always present.
-			const source = await matchedResource.getString();
-			if (isBundleResource(matchedResource, log) || isBundleSource(source)) {
+			// Never instrument bundles (e.g. *-preload.js): the concatenated source corrupts coverage and
+			// its indexed source map crashes istanbul; they are served verbatim by the next middleware.
+			// Detect via the `ui5:IsBundle` tag, else the `//@ui5-bundle` marker.
+			// The marker needs the source, so read it only when the tag is absent (a tagged,
+			// often large, bundle is never read into memory).
+			const taggedBundle = isBundleResource(matchedResource, log);
+			const source = taggedBundle ? undefined : await matchedResource.getString();
+			if (taggedBundle || isBundleSource(source)) {
 				log.verbose(`${pathname} is a bundle; serving without instrumentation`);
 				next();
 				return;
