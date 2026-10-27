@@ -23,6 +23,22 @@ export default [
 		},
 	},
 	{
+		// Plain-JS fixtures (cross-project dependency + .library exclude probes, TS app bootstrap):
+		// UI5 runtime sources.
+		files: [
+			"test/integration/fixtures/coverage-dep-app/webapp/**/*.js",
+			"test/integration/fixtures/coverage-dep-lib/src/**/*.js",
+			"test/integration/fixtures/coverage-app-ts/webapp/**/*.js",
+		],
+
+		languageOptions: {
+			globals: {
+				...globals.browser,
+				sap: "readonly",
+			},
+		},
+	},
+	{
 		files: ["test/integration/*.js"],
 
 		rules: {

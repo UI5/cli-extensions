@@ -13,11 +13,11 @@ You find this middleware in action in the [OpenUI5 Sample App](https://github.co
 
 ## Requirements
 
-This middleware requires UI5 CLI v3 and is meant for UI5 1.113 and above.
+This middleware requires UI5 CLI v5 (currently still in development) and is meant for UI5 1.155 and above. It relies on the `builtResources` parameter (available for custom middleware defining Specification Version 5.0 and later) to access the build output.
 
-## Limitations
+## TypeScript support
 
-Note that this middleware is currently not compatible with TypeScript based projects, see [TypeScript support #189](https://github.com/UI5/cli-extensions/issues/189).
+TypeScript-based projects are supported. When a module is transpiled to JavaScript and ships a source map, the middleware instruments the transpiled JavaScript and remaps the collected coverage back onto the original `.ts` source in the report.
 
 ## Install
 
