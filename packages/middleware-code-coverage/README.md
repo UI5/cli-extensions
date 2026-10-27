@@ -13,11 +13,13 @@ You find this middleware in action in the [OpenUI5 Sample App](https://github.co
 
 ## Requirements
 
-This middleware requires UI5 CLI v3 and is meant for UI5 1.113 and above.
+This middleware requires UI5 CLI v3+ and is meant for UI5 1.113 and above.
 
 ## Limitations
 
 Note that this middleware is currently not compatible with TypeScript based projects, see [TypeScript support #189](https://github.com/UI5/cli-extensions/issues/189).
+
+This middleware version (v2) is not compatible with UI5 CLI v5. On UI5 CLI v5, use `@ui5/middleware-code-coverage` v3 (currently `3.0.0-alpha.0`) or later.
 
 ## Install
 
