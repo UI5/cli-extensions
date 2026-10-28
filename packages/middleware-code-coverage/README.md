@@ -13,7 +13,7 @@ You find this middleware in action in the [OpenUI5 Sample App](https://github.co
 
 ## Requirements
 
-This middleware requires UI5 CLI v5 (currently still in development) and is meant for UI5 1.155 and above. It relies on the `builtResources` parameter (available for custom middleware defining Specification Version 5.0 and later) to access the build output.
+This middleware requires UI5 CLI v5 or higher, and a minimum UI5 version of 1.120.52, 1.136.25, or 1.155.0, depending on your release line.
 
 ## TypeScript support
 

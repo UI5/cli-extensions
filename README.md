@@ -11,7 +11,7 @@
 
 ## Requirements
 
-The offered extensions require UI5 CLI Version 3 and above.
+The offered extensions require UI5 CLI Version 5 and above.
 
 ## Packages
 
