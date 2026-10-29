@@ -14,6 +14,7 @@
 	"prerelease-type": "alpha",
 	"release-type": "node",
 	"versioning": "prerelease",
+	"last-release-sha": "7c115ea85c5f8e050c2b18c8e2f9f6390902ca7a",
 	"separate-pull-requests": true,
 	"include-component-in-tag": true,
 	"changelog-sections": [
