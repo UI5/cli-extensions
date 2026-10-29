@@ -1,5 +1,20 @@
 # Changelog
 
+## [3.0.0-alpha.1](https://github.com/UI5/cli-extensions/compare/middleware-code-coverage-v2.0.4...middleware-code-coverage-v3.0.0-alpha.1) (2026-10-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* **middleware-code-coverage:** The middleware uses specVersion 5.0 and requires UI5 CLI v5 or higher.
+* **middleware-code-coverage:** UI5 Middleware Code Coverage supports now "^22.22.3 || ^24.15.0 || >=26.0.0".
+    - ci: Align workflow test node version
+    - ci: Use Node 22.22.3 to avoid registerHooks load-hook bug, fixed in 22.22.3
+
+### Features
+
+* **middleware-code-coverage:** Set minimal required Node version "22.22.3" ([292fc66](https://github.com/UI5/cli-extensions/commit/292fc667ec5f9e4bc6cd52b9f90ecba687d3db6a))
+* **middleware-code-coverage:** Support UI5 CLI v5, Input Source Maps and TypeScript ([#619](https://github.com/UI5/cli-extensions/issues/619)) ([5cf6dfe](https://github.com/UI5/cli-extensions/commit/5cf6dfe1777ddeeb63ae19a1494b34a44074833d))
+
 ## [2.0.4](https://github.com/UI5/cli-extensions/compare/middleware-code-coverage-v2.0.3...middleware-code-coverage-v2.0.4) (2026-08-18)
 
 
