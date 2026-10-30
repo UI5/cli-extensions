@@ -9,6 +9,10 @@ on:
         type: choice
         options:
           - middleware-code-coverage
+      confirm_publish:
+        description: "Type 'publish' to confirm (re-)publishing the selected package against current main (version from its package.json). Use only when a prior publish failed before the package reached npm; republishing an existing version fails with 403."
+        required: true
+        type: string
   push:
     branches:
       - main
@@ -17,6 +21,9 @@ permissions: {}
 
 jobs:
   pull-request:
+    # release-please runs only on push. Manual dispatch is publish-only and
+    # must not open or update a release PR.
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -32,7 +39,12 @@ jobs:
         path: packages/${{inputs.package-folder}}
   publish-package:
     needs: pull-request
-    if: ${{needs.pull-request.outputs.releases_created && toJson(fromJson(needs.pull-request.outputs.paths_released)) != '[]'}}
+    if: >-
+      ${{ !cancelled()
+          && ((github.event_name == 'workflow_dispatch' && inputs.confirm_publish == 'publish')
+              || (needs.pull-request.result == 'success'
+                  && needs.pull-request.outputs.releases_created
+                  && toJson(fromJson(needs.pull-request.outputs.paths_released || '[]')) != '[]')) }}
     runs-on: ubuntu-24.04
     permissions:
       id-token: write # Required for trusted publishing via OIDC (https://docs.npmjs.com/trusted-publishers)
@@ -40,7 +52,9 @@ jobs:
     environment: npmjs:@ui5/middleware-code-coverage
     strategy:
       matrix:
-        path_released: ${{fromJson(needs.pull-request.outputs.paths_released)}}
+        path_released: ${{ github.event_name == 'workflow_dispatch'
+          && fromJson(format('["packages/{0}"]', inputs.package-folder))
+          || fromJson(needs.pull-request.outputs.paths_released || '[]') }}
     steps:
     - name: Checkout
       uses: actions/checkout@v7
