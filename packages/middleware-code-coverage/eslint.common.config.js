@@ -14,11 +14,15 @@ export default [
 			"test/fixtures/",
 			"**/docs/",
 			"**/jsdocs/",
+			// eslint-plugin-ava v18's recommended config adds **/package.json to the
+			// linted set, but the legacy JS rules (eslint-config-google) crash on JSON.
+			// This project has no ava config block in package.json, so skip it.
+			"**/package.json",
 		],
 	},
 	js.configs.recommended,
 	google,
-	ava.configs["flat/recommended"],
+	...ava.configs["recommended"],
 	{
 		name: "Common ESLint config used for all UI5 CLI repos",
 
