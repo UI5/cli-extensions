@@ -148,11 +148,10 @@ test("GET with ?instrument=true returns instrumented JS with sourceMappingURL", 
 // Case 6: Non-instrumented resource falls through to connect's default 404,
 // proving the middleware calls next() instead of swallowing unrelated requests
 test("Non-instrumented resource falls through to 404", async (t) => {
-	await t.context.app
-		.get("/resources/lib1/Control1.js")
-		.expect(404);
+	const res = await t.context.app
+		.get("/resources/lib1/Control1.js");
 
-	t.pass();
+	t.is(res.status, 404);
 });
 
 // Case 7: A report type that was not generated has no serve-static route, so the request falls

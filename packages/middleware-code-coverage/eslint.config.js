@@ -43,6 +43,9 @@ export default [
 
 		rules: {
 			"ava/no-ignored-test-files": "off",
+			// Parameterized integration tests assert per-scenario flags inside conditionals
+			// (build-tasks.js); each test always runs unconditional assertions too.
+			"ava/no-conditional-assertion": "off",
 		},
 	},
 	{
