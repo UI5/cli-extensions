@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.0-alpha.2](https://github.com/UI5/cli-extensions/compare/middleware-code-coverage-v3.0.0-alpha.1...middleware-code-coverage-v3.0.0-alpha.2) (2026-11-11)
+
+
+### Dependencies
+
+* Bump istanbul-lib-source-maps from 4.0.1 to 5.0.6 ([#625](https://github.com/UI5/cli-extensions/issues/625)) ([49d4952](https://github.com/UI5/cli-extensions/commit/49d4952fbd01d868414f6bf1b2b0fc86baa9424c))
+
 ## [3.0.0-alpha.1](https://github.com/UI5/cli-extensions/compare/middleware-code-coverage-v2.0.4...middleware-code-coverage-v3.0.0-alpha.1) (2026-10-29)
 
 
